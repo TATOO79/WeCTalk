@@ -470,6 +470,8 @@ html[data-theme="day"] .ed-header { background: var(--zone); }
   overscroll-behavior: contain;
   touch-action: pan-y;                  /* 纵向滚动原生处理，双指缩放交给 JS */
   scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  /* 左右两侧始终预留滚动条宽度：无滚动条时内容也不位移，键盘弹出不抖动 */
+  scrollbar-gutter: stable both-edges;
 }
 .chat-area::-webkit-scrollbar { width: 9px; }
 .chat-area::-webkit-scrollbar-thumb {
@@ -819,7 +821,7 @@ html:not(.is-app) .side-tag { cursor: pointer; }
   font-size: 13.5px; font-weight: 400; letter-spacing: .5px;
   line-height: 1.6; text-align: center;
   max-width: calc(100vw - 32px);
-  white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+  white-space: nowrap;
   opacity: 0; pointer-events: none;
   transition: all .32s cubic-bezier(.34,1.3,.64,1);
   z-index: 200;
@@ -1036,7 +1038,7 @@ html, body { overscroll-behavior: none; }
   border-radius: 10px; object-fit: cover;
   box-shadow: 0 10px 30px rgba(0,0,0,.35);
 }
-.getapp-desc { font-size: 13px; color: var(--text-2); line-height: 1.9; margin-bottom: 20px; }
+.getapp-desc { font-size: 13px; color: var(--text-2); line-height: 1.9; margin-bottom: 20px; text-align: center; }
 .getapp-btn {
   display: block; width: 100%; padding: 13px 0;
   font-size: 14.5px; text-align: center;

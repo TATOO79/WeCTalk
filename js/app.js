@@ -56,6 +56,8 @@
   function toast(msg) {
     const t = $('#toast');
     t.textContent = msg; t.classList.add('show');
+    // 默认单行；只有整句超出屏幕宽度（少见的长错误）才允许换行，仍居中
+    t.style.whiteSpace = (t.scrollWidth > window.innerWidth - 32) ? 'normal' : 'nowrap';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
   }
@@ -1346,7 +1348,7 @@
   $('#btn-theme-ed').onclick = toggleTheme;
 
   /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v4' : 'wetalk_guide_seeded_v3';
+  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v5' : 'wetalk_guide_seeded_v4';
   const GUIDE_TITLES = [
     '欢迎使用 WeTalk · 使用说明',
     '欢迎使用WeTalk·网页使用说明',
@@ -1356,12 +1358,16 @@
     ? '欢迎使用WeTalk·App使用说明'
     : '欢迎使用WeTalk·网页使用说明';
   function seedGuide() {
-    // 升级到平台区分标题：只移除旧版标题 / 另一端标题的说明，保留当前端的
+    // 旧版标题 / 另一端标题的说明：每次启动都移除
     const staleTitles = GUIDE_TITLES.filter(t => t !== guideTitle);
     const n0 = db.docs.length;
     db.docs = db.docs.filter(d => !staleTitles.includes(d.title));
     if (db.docs.length !== n0) save();
     if (localStorage.getItem(GUIDE_KEY)) return;
+    // 新版本种子：同标题的旧内容也一并替换
+    const n1 = db.docs.length;
+    db.docs = db.docs.filter(d => d.title !== guideTitle);
+    if (db.docs.length !== n1) save();
     const diagram =
       '<svg viewBox="0 0 240 132" style="width:100%;max-width:252px;height:auto;margin:8px 0 2px;fill:none;stroke:currentColor;stroke-width:1.5;">'
       + '<line x1="120" y1="6" x2="120" y2="126" style="stroke:currentColor;opacity:.25;stroke-dasharray:4 4;stroke-width:1.2"/>'
@@ -1377,11 +1383,14 @@
     const saveTip = IS_APP
       ? '<b>七、保存机制（手机端）</b><br>· <b>新建文稿时先选择保存位置</b>（桌面或某个文件夹），确认后才进入编写。<br>· 编辑内容<b>默认自动保存</b>，无需任何手动操作；点左上角箭头即返回文档库。<br>· 文稿位置可随时通过列表三点菜单里的「移动」更换，移动时可以直接选择「桌面」。'
       : '<b>七、保存机制</b><br>· 新建文稿时先选择保存位置（桌面或某个文件夹），确认后进入编写。<br>· 编辑内容会自动保存，不会打断编辑；点左上角箭头返回文档库。';
+    const layoutTip = IS_APP
+      ? '<b>三、编写界面 · 左右分栏</b><br>对话按左右两栏记录，并按「全局行号」对齐——同侧连发依次下移，换到另一侧时会对齐到同一水平线的对侧栏位。<br>手机端气泡宽度可以向对侧<b>跨过中间分隔线</b>（长内容几乎占满整行宽度），但始终按行号停留在自己的行内，不会盖住对侧的气泡。'
+      : '<b>三、编写界面 · 左右分栏</b><br>对话按左右两栏记录，并按「全局行号」对齐——同侧连发依次下移，换到另一侧时会对齐到同一水平线的对侧栏位，两边内容永远不会串栏。';
     const items = [
       '<b>欢迎使用 WeTalk</b><br>这是一个专注于「快速记录对话」的小工具。没有复杂的排版功能，打开就能记，记完即可导出。这份说明会带你快速上手，读完后可以随时删除它。',
       '<b>一、主界面 · 你的文档库</b><br>· 中间是文稿与文件夹列表，显示名称和创建日期，列表独立滚动，上下栏始终固定不动。<br>· 每行右侧的「三个点」可对该项目执行 <u>重命名 / 移动 / 删除</u>。<br>· 右下角圆形 ＋ 用来新建文稿或文件夹。<br>· 底部居中显示文稿与文件夹总数。',
       '<b>二、快速导航与搜索</b><br>· 点右上角的栏位图标，右侧会展开快速导航：<b>单击文件夹</b>即可展开 / 折叠它包含的内层文件夹和文稿；<b>双击文稿</b>直接进入编辑。<br>· 顶部搜索框输入关键字，会实时按名称筛选文稿和文件夹；清空即恢复。',
-      '<b>三、编写界面 · 左右分栏</b><br>对话按左右两栏记录，并按「全局行号」对齐——同侧连发依次下移，换到另一侧时会对齐到同一水平线的对侧栏位，两边内容永远不会串栏。'
+      layoutTip
       + diagram
       + '<span style="font-size:12.5px;opacity:.75;">示意图：右侧连发两条（深色），左侧回复落在对应行（浅色）。</span>',
       switchTip,
