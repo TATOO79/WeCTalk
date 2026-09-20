@@ -1867,6 +1867,8 @@
   }
   function supaErrText(e) {
     const m = e.error || '';
+    if (/could not find the table|sync_data|schema cache/i.test(m))
+      return '云端数据表尚未创建：请在 Supabase 的 SQL Editor 执行建表语句后再同步';
     if (/JWT|expired/i.test(m)) return '登录已过期，请重新登录';
     return m || '同步失败，请稍后重试';
   }
