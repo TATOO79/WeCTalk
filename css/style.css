@@ -913,6 +913,8 @@ html, body { overscroll-behavior: none; }
 
   /* 弹窗 */
   .modal { width: 94vw; }
+  /* 冲突弹窗：压缩内边距，保证两按钮始终单行并排 */
+  .cloudpick-modal { padding: 22px 18px; }
   /* 设置弹窗：两块面板纵向堆叠，压缩间距保证「保存」按钮完整可见可点 */
   .settings-modal { padding: 18px 16px; max-height: 90vh; }
   .settings-panels { gap: 12px; }
@@ -992,12 +994,16 @@ html, body { overscroll-behavior: none; }
 .cloud-name { font-size: 15px; font-weight: 650; }
 .cloud-status { font-size: 12.5px; color: var(--text-2); margin-top: 3px; }
 
-.cloudpick-modal { width: 350px; }
+.cloudpick-modal { width: 350px; max-width: 94vw; }
 .cloudpick-modal p {
   font-size: 13.5px; color: var(--text-2);
-  text-align: center; line-height: 1.9;
+  text-align: justify; text-justify: inter-ideograph; line-height: 1.9;
 }
-.cloudpick-modal .modal-center { justify-content: space-between; }
+.cloudpick-modal .modal-center { gap: 10px; }
+.cloudpick-modal .modal-center button {
+  flex: 1 1 0; min-width: 0; padding: 11px 6px;
+  white-space: nowrap; font-size: 13.5px; letter-spacing: 0;
+}
 .primary-btn:disabled { opacity: .55; cursor: default; filter: none; }
 
 /* ============================================================
@@ -1083,7 +1089,7 @@ html, body { overscroll-behavior: none; }
 .getapp-modal { width: 340px; text-align: center; }
 .getapp-logo {
   width: 76px; height: 76px; margin: 4px auto 16px;
-  border-radius: 19px; object-fit: cover;
+  border-radius: 10px; object-fit: cover;
   box-shadow: 0 10px 30px rgba(0,0,0,.35);
 }
 .getapp-desc { font-size: 13px; color: var(--text-2); line-height: 1.9; margin-bottom: 20px; }
