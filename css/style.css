@@ -312,8 +312,8 @@ html[data-theme="night"] .header-search svg { color: var(--accent-solid); }
 /* 文件夹：主色浅底 + 实心主色图标，比文稿更醒目（与快速导航一致） */
 .doc-row.folder .row-icon { background: var(--accent-soft); color: var(--accent-solid); }
 .doc-row .row-info { flex: 1; min-width: 0; }
-.doc-row .row-name {
-  font-size: 15px; font-weight: 600; letter-spacing: .2px;
+.doc-row:not(.folder) .row-name {
+  font-size: 14px; font-weight: 600; letter-spacing: .2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .doc-row .row-date {

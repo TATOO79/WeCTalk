@@ -1346,15 +1346,22 @@
   $('#btn-theme-ed').onclick = toggleTheme;
 
   /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v3' : 'wetalk_guide_seeded_v2';
+  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v4' : 'wetalk_guide_seeded_v3';
+  const GUIDE_TITLES = [
+    '欢迎使用 WeTalk · 使用说明',
+    '欢迎使用WeTalk·网页使用说明',
+    '欢迎使用WeTalk·App使用说明'
+  ];
+  const guideTitle = IS_APP
+    ? '欢迎使用WeTalk·App使用说明'
+    : '欢迎使用WeTalk·网页使用说明';
   function seedGuide() {
+    // 升级到平台区分标题：只移除旧版标题 / 另一端标题的说明，保留当前端的
+    const staleTitles = GUIDE_TITLES.filter(t => t !== guideTitle);
+    const n0 = db.docs.length;
+    db.docs = db.docs.filter(d => !staleTitles.includes(d.title));
+    if (db.docs.length !== n0) save();
     if (localStorage.getItem(GUIDE_KEY)) return;
-    // App 升级说明文案时，用新版种子替换旧版使用说明（仅 App 环境）
-    if (IS_APP) {
-      const n0 = db.docs.length;
-      db.docs = db.docs.filter(d => d.title !== '欢迎使用 WeTalk · 使用说明');
-      if (db.docs.length !== n0) save();
-    }
     const diagram =
       '<svg viewBox="0 0 240 132" style="width:100%;max-width:252px;height:auto;margin:8px 0 2px;fill:none;stroke:currentColor;stroke-width:1.5;">'
       + '<line x1="120" y1="6" x2="120" y2="126" style="stroke:currentColor;opacity:.25;stroke-dasharray:4 4;stroke-width:1.2"/>'
@@ -1387,7 +1394,7 @@
     const doc = {
       id: uid(),
       folderId: null,
-      title: '欢迎使用 WeTalk · 使用说明',
+      title: guideTitle,
       titleManual: true,
       createdAt: Date.now(),
       settings: defaultSettings(),
