@@ -33,8 +33,7 @@
   }
   function save() {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
-    scheduleCloudPush(); // 登录 GitHub 云账号后：本地每次保存自动安排上传（函数声明，下方云模块定义）
-    scheduleSupaPush();  // 登录 Supabase 账号后：同理自动安排上传（函数声明，下方模块定义）
+    scheduleSupaPush();  // 登录后：本地每次保存自动安排上传（函数声明，下方云模块定义）
   }
 
   const defaultSettings = () => ({
@@ -69,12 +68,17 @@
     $(id).classList.remove('hidden');
   }
   function closeModals() {
-    stopDevicePolling();
     $('#modal-mask').classList.add('hidden');
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
   }
-  $('#modal-mask').addEventListener('click', closeModals);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+  $('#modal-mask').addEventListener('click', () => {
+    // 强制登录门显示时，点遮罩不能关闭
+    if (!$('#modal-auth').classList.contains('hidden')) return;
+    closeModals();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && $('#modal-auth').classList.contains('hidden')) closeModals();
+  });
   // 输入弹窗（新建文件夹/重命名）回车视同确认
   $('#prompt-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); $('#prompt-ok').click(); }
@@ -1004,7 +1008,10 @@
     let lastExitToastAt = 0;
     window.__wtHandleBack = function () {
       const mask = $('#modal-mask');
-      if (!mask.classList.contains('hidden')) { mask.click(); return true; }
+      if (!mask.classList.contains('hidden')) {
+        if (!$('#modal-auth').classList.contains('hidden')) return true; // 登录门不可用返回键关闭
+        mask.click(); return true;
+      }
       if (sideNav.classList.contains('open')) { closeSideNav(); return true; }
 
       if (!$('#view-editor').classList.contains('hidden')) {
@@ -1375,7 +1382,7 @@
       '<b>六、人物设置</b><br>点左上角的人型图标（角色设置），可为左右两人分别设置：<br>· <u>头像</u>：从本地图库选择，或切换到纯色模式点选色环 / 输入色号，颜色会即时显示，直接点保存即可（无需再点行内小确定）。<br>· <u>名字</u>：设置后，输入框左右两个圆圈会分别显示两人名字的第一个字（未设置时仍显示「左 / 右」），对话区上方也会在左右两栏居中显示对应名字。<br>没有手动填写标题时，文稿会自动命名为「左边名字和右边名字的对话」，同名时自动追加数字区分。',
       saveTip,
       '<b>八、导出三种格式</b><br>点右上角导出图标：<br>· <u>TXT</u>：首行标注（左）（右）名字，右侧对话靠右排列。<br>· <u>Word</u>：双栏排版、左右绝不混行，顶部含居中头像与名字，保留加粗、下划线与头像图片。<br>' + (IS_APP ? 'TXT / Word 确认文件名后会打开系统文件选择器，由你指定具体保存位置。<br>· ' : '· ') + '<u>PDF</u>：版式与 Word 一致，在系统打印窗口选择「另存为 PDF」即可。',
-      '<b>九、数据与隐私</b><br>所有文稿、设置和头像默认保存在<b>本机</b>中，无需联网。需要在多台设备（手机 / 电脑）之间同步时，点顶部标题旁的<b>云朵图标</b>：App 内可用 GitHub 账号授权登录，网页版可粘贴访问令牌；数据会自动保存到你 GitHub 账号下的私有仓库（他人不可见），换设备后重新连接即可恢复全部记录；也可以随时退出登录，退出不影响本机已有数据。' + (IS_APP ? '卸载 App 或清除应用数据会同时删除本机内容，请重要记录及时导出备份。' : '清理浏览器数据会同时删除本机内容，请重要记录及时导出备份。') + '<br><br>准备好了，就点右下角 ＋ 开始第一段对话吧。'
+      '<b>九、账号与同步</b><br>打开应用时使用邮箱注册并登录后，所有文稿、设置和头像会自动保存到<b>云端</b>：同一账号在手机 App / 网页登录，即可自动同步全部记录。点顶部标题「WeTalk」可查看账号信息、立即同步或切换账号；退出登录不影响本机已有数据。' + (IS_APP ? '卸载 App 或清除应用数据会同时删除本机内容，请重要记录及时导出备份。' : '清理浏览器数据会同时删除本机内容，请重要记录及时导出备份。') + '<br><br>准备好了，就点右下角 ＋ 开始第一段对话吧。'
     ];
     const doc = {
       id: uid(),
@@ -1393,451 +1400,27 @@
     save();
     localStorage.setItem(GUIDE_KEY, '1');
   }
-
-  /* ============ 云同步（GitHub Device Flow · 私有仓库整库同步） ============
-     最经济方案：永久 0 元。点云朵 → 浏览器在 GitHub 官方页输入一次性授权码 →
-     数据以 JSON 存放在你账号下自动创建的私有仓库 wetalk-data 中；
-     任何设备（网页 / App）登录同一 GitHub 账号即可恢复，双端共用本模块。 */
-  const GH_CLIENT_ID = 'Ov23li8OlmkfBhi89I6r';
-  const GH_API = 'https://api.github.com';
-  const GH_REPO = 'wetalk-data';
-  const GH_PATH = 'wetalk-db.json';
-  const GH_MAX_BYTES = 900000;   // Contents API 单文件约 1MB 上限
-  const CLOUD_KEY = 'wetalk_cloud_v1';
-  let cloud = null;              // { token, login, sha }
-  let cloudSyncing = false;
-  let cloudPushTimer = null;
-  let cloudDirty = false;
-  let deviceTimer = null;
-  let deviceStopped = false;
-
-  function cloudConfigured() { return !/^__GH_CLIENT_ID__$/.test(GH_CLIENT_ID); }
-  function loadCloudMeta() {
-    try { cloud = JSON.parse(localStorage.getItem(CLOUD_KEY)); } catch (e) { cloud = null; }
-  }
-  function saveCloudMeta() {
-    try { localStorage.setItem(CLOUD_KEY, JSON.stringify(cloud)); } catch (e) {}
-  }
-  function clearCloudMeta() {
-    cloud = null;
-    try { localStorage.removeItem(CLOUD_KEY); } catch (e) {}
-    refreshCloudBtn();
-  }
-
-  /* GitHub REST API（JSON） */
-  function ghRequest(method, path, body) {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open(method, GH_API + path, true);
-      xhr.setRequestHeader('Accept', 'application/vnd.github+json');
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      if (cloud && cloud.token) xhr.setRequestHeader('Authorization', 'Bearer ' + cloud.token);
-      xhr.onreadystatechange = () => {
-        if (xhr.readyState !== 4) return;
-        let data = null;
-        try { data = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch (e) { data = null; }
-        if (xhr.status >= 200 && xhr.status < 300) resolve(data || {});
-        else reject({ status: xhr.status, error: (data && (data.message || data.error)) || ('请求失败 (' + xhr.status + ')') });
-      };
-      xhr.onerror = () => reject({ status: 0, error: '网络不可用，请检查网络连接' });
-      xhr.send(body ? JSON.stringify(body) : null);
-    });
-  }
-  /* Device Flow 表单端点（github.com，非 api）：
-     App 走 Java 原生桥（OAuth 端点不支持网页跨域）；网页端 XHR */
-  function ghForm(url, params) {
-    if (IS_APP && window.WTNative) {
-      return new Promise((resolve, reject) => {
-        let raw;
-        try {
-          raw = /\/device\/code$/.test(url)
-            ? window.WTNative.ghDeviceCode(params.client_id)
-            : window.WTNative.ghPollToken(params.client_id, params.device_code);
-        } catch (e) {
-          return reject({ error: 'bridge_error', error_description: '原生桥调用失败' });
-        }
-        let data = null;
-        try { data = JSON.parse(raw); } catch (e) {}
-        if (!data) return reject({ error: 'bad_response', error_description: '返回内容无法解析' });
-        if (data.error) reject(data); else resolve(data);
-      });
-    }
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', url, true);
-      xhr.setRequestHeader('Accept', 'application/json');
-      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-      xhr.onreadystatechange = () => {
-        if (xhr.readyState !== 4) return;
-        let data = null;
-        try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
-        if (xhr.status >= 200 && xhr.status < 300 && data) {
-          if (data.error) reject(data); else resolve(data);
-        }
-        else reject({ status: xhr.status, error: (data && (data.error_description || data.error)) || '请求失败' });
-      };
-      xhr.onerror = () => reject({ status: 0, error: 'network_error', error_description: '网络不可用，请检查网络连接' });
-      xhr.send(new URLSearchParams(params).toString());
-    });
-  }
-
-  const ghMe         = () => ghRequest('GET', '/user');
-  const ghRepoInfo   = login => ghRequest('GET', '/repos/' + login + '/' + GH_REPO);
-  const ghCreateRepo = () => ghRequest('POST', '/user/repos', { name: GH_REPO, private: true, auto_init: false });
-  const ghGetFile    = login => ghRequest('GET', '/repos/' + login + '/' + GH_REPO + '/contents/' + GH_PATH);
-  const ghPutFile    = (login, content, sha) => {
-    const body = { message: 'wetalk sync ' + new Date().toISOString().replace('T', ' ').slice(0, 19), content };
-    if (sha) body.sha = sha;
-    return ghRequest('PUT', '/repos/' + login + '/' + GH_REPO + '/contents/' + GH_PATH, body);
-  };
-
-  function ghErrText(e) {
-    if (e.status === 401) return '登录已过期，请重新登录';
-    if (e.status === 403 && /rate limit/i.test(e.error || '')) return 'GitHub 请求过于频繁，请稍后再试';
-    return e.error || '同步失败，请稍后重试';
-  }
-
-  /* UTF-8 安全的 base64 编解码 */
-  const b64encode = str => btoa(unescape(encodeURIComponent(str)));
-  function b64decode(b64) {
-    try { return decodeURIComponent(escape(atob((b64 || '').replace(/\s/g, '')))); }
-    catch (e) { return atob((b64 || '').replace(/\s/g, '')); }
-  }
-
-  /* ---- 本地保存后自动安排上传（1.5 秒合并连续编辑；上传前先核对云端版本） ---- */
-  function scheduleCloudPush() {
-    if (!cloud || !cloud.token) return;
-    cloudDirty = true;
-    clearTimeout(cloudPushTimer);
-    cloudPushTimer = setTimeout(() => { cloudPush(true); }, 1500);
-  }
-
-  function applyCloudPayload(payload) {
-    db = JSON.parse(payload);
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    saveCloudMeta();
-    applyTheme(); renderLibrary();
-  }
-
-  /* 云端版本与本机不一致时的二选一弹窗，返回 'cloud'（恢复云端）或 'local'（本机覆盖） */
-  function cloudPickPromise(label) {
-    return new Promise(resolve => {
-      const who = label || 'GitHub 云端';
-      $('#cloudpick-text').textContent =
-        who + '已有一份数据。恢复云端数据会覆盖本机现有内容；保留本机内容则会覆盖云端版本。';
-      openModal('#modal-cloudpick');
-      $('#cloudpick-cloud').onclick = () => { closeModals(); resolve('cloud'); };
-      $('#cloudpick-local').onclick = () => { closeModals(); resolve('local'); };
-    });
-  }
-
-  /* 拉取云端文件；不存在返回 null */
-  async function fetchRemoteFile() {
-    const remote = await ghGetFile(cloud.login);
-    cloud.sha = remote.sha; saveCloudMeta();
-    return b64decode(remote.content);
-  }
-
-  async function cloudPush(auto) {
-    if (!cloud || !cloud.token) return;
-    if (cloudSyncing) { cloudDirty = true; return; }
-    cloudSyncing = true; refreshCloudBtn();
-    try {
-      const localStr = JSON.stringify(db);
-      if (localStr.length > GH_MAX_BYTES) throw { status: 0, error: '本机数据过大，已超过 GitHub 单文件同步上限' };
-      let remoteStr = null;
-      try {
-        remoteStr = await fetchRemoteFile();
-      } catch (ge) {
-        if (ge.status !== 404) throw ge; // 文件尚未创建属正常
-      }
-      if (remoteStr !== null && remoteStr !== localStr) {
-        const choice = await cloudPickPromise();
-        if (choice === 'cloud') {
-          applyCloudPayload(remoteStr);
-          cloudDirty = false;
-          toast('已恢复云端数据');
-          return;
-        }
-        // 选择本机覆盖：沿用刚拿到的最新 sha
-      }
-      const put = await ghPutFile(cloud.login, b64encode(localStr), cloud.sha);
-      cloud.sha = put.content.sha; saveCloudMeta(); cloudDirty = false;
-      if (!auto) toast('已同步到云端');
-    } catch (e) {
-      cloudDirty = true; // 网络失败：改动保留，下次保存或手动同步时重试
-      if (!auto) toast(ghErrText(e));
-    } finally {
-      cloudSyncing = false; refreshCloudBtn();
-    }
-  }
-
-  /* ---- Device Flow 登录 ---- */
-  function stopDevicePolling() {
-    deviceStopped = true;
-    clearTimeout(deviceTimer);
-    deviceTimer = null;
-  }
-  function showDeviceView() {
-    $('#gh-login').classList.add('hidden');
-    $('#gh-device').classList.remove('hidden');
-  }
-  function showLoginStart() {
-    $('#gh-device').classList.add('hidden');
-    $('#gh-login').classList.remove('hidden');
-    $('#gh-login-app').classList.toggle('hidden', !IS_APP);
-    $('#gh-login-web').classList.toggle('hidden', IS_APP);
-    $('#gh-token-error').textContent = '';
-    $('#gh-token-input').value = '';
-  }
-  /* 网页端：粘贴令牌连接 */
-  async function startWebTokenLogin() {
-    const input = $('#gh-token-input');
-    const err = $('#gh-token-error');
-    const token = input.value.trim();
-    err.textContent = '';
-    if (!/^(ghp_|github_pat_)[A-Za-z0-9_]{20,}$/.test(token)) {
-      err.textContent = '令牌格式不正确，应为 ghp_ 或 github_pat_ 开头';
-      return;
-    }
-    const btn = $('#gh-token-ok'); btn.disabled = true;
-    try {
-      await afterDeviceAuth(token);
-    } catch (e) {
-      err.textContent = ghErrText(e);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-  async function startDeviceLogin() {
-    if (!cloudConfigured()) return toast('云同步尚未配置');
-    const btn = $('#gh-start'); btn.disabled = true;
-    try {
-      const code = await ghForm('https://github.com/login/device/code', { client_id: GH_CLIENT_ID, scope: 'repo' });
-      showDeviceView();
-      $('#gh-code').textContent = code.user_code;
-      $('#gh-url').textContent = code.verification_uri;
-      let interval = Math.max(code.interval || 5, 5);
-      const expiresAt = Date.now() + (code.expires_in || 900) * 1000;
-      deviceStopped = false;
-
-      const poll = async () => {
-        if (deviceStopped) return;
-        if (Date.now() > expiresAt) {
-          $('#gh-wait').textContent = '授权码已过期，请重新发起登录';
-          setTimeout(() => { if (!deviceStopped) { showLoginStart(); } }, 1600);
-          return;
-        }
-        try {
-          const r = await ghForm('https://github.com/login/oauth/access_token', {
-            client_id: GH_CLIENT_ID, device_code: code.device_code,
-            grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-          });
-          if (r.access_token) {
-            stopDevicePolling();
-            await afterDeviceAuth(r.access_token);
-            return;
-          }
-        } catch (e) {
-          const why = e.error || '';
-          if (why === 'authorization_pending') {
-            $('#gh-wait').textContent = '等待授权中…完成后自动继续';
-          } else if (why === 'slow_down') {
-            interval += 5;
-          } else if (why === 'access_denied') {
-            stopDevicePolling();
-            $('#gh-wait').textContent = '你取消了授权';
-            setTimeout(showLoginStart, 1400);
-            return;
-          } else if (why === 'expired_token') {
-            stopDevicePolling();
-            $('#gh-wait').textContent = '授权码已过期，请重新发起登录';
-            setTimeout(showLoginStart, 1600);
-            return;
-          } else {
-            stopDevicePolling();
-            $('#gh-wait').textContent = e.error_description || e.error || '登录失败，请重试';
-            setTimeout(showLoginStart, 1800);
-            return;
-          }
-        }
-        deviceTimer = setTimeout(poll, interval * 1000);
-      };
-      poll();
-    } catch (e) {
-      showLoginStart();
-      toast(ghErrText(e));
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  /* 授权成功：确认账号 → 确保私有仓库 → 首同步 */
-  async function ensureRepo(login) {
-    try {
-      await ghRepoInfo(login);
-    } catch (e) {
-      if (e.status === 404) await ghCreateRepo();
-      else throw e;
-    }
-  }
-  async function afterDeviceAuth(token) {
-    cloud = { token, login: null, sha: null };
-    const me = await ghMe();
-    cloud.login = me.login;
-    saveCloudMeta();
-    await ensureRepo(cloud.login);
-    const localStr = JSON.stringify(db);
-    const localEmpty = db.docs.length === 0 && db.folders.length === 0;
-    let remoteStr = null;
-    try {
-      remoteStr = await fetchRemoteFile();
-    } catch (ge) {
-      if (ge.status !== 404) throw ge;
-    }
-    if (remoteStr === null) {
-      const put = await ghPutFile(cloud.login, b64encode(localStr), null);
-      cloud.sha = put.content.sha; saveCloudMeta();
-      closeModals();
-      toast('登录成功，本机数据已上传云端');
-    } else if (remoteStr === localStr) {
-      closeModals();
-      toast('登录成功，数据已是同步状态');
-    } else if (localEmpty) {
-      applyCloudPayload(remoteStr);
-      closeModals();
-      toast('登录成功，已恢复云端数据');
-    } else {
-      const choice = await cloudPickPromise();
-      if (choice === 'cloud') {
-        applyCloudPayload(remoteStr);
-        toast('已恢复云端数据');
-      } else {
-        const put = await ghPutFile(cloud.login, b64encode(localStr), cloud.sha);
-        cloud.sha = put.content.sha; saveCloudMeta();
-        toast('本机数据已上传');
-      }
-    }
-    refreshCloudBtn();
-  }
-
-  /* ---- 启动时自动恢复会话并检查云端新版本 ---- */
-  async function cloudBoot() {
-    if (!cloudConfigured()) { refreshCloudBtn(); return; }
-    loadCloudMeta();
-    refreshCloudBtn();
-    if (!cloud || !cloud.token) return;
-    try {
-      const me = await ghMe();
-      cloud.login = me.login; saveCloudMeta();
-      await ensureRepo(cloud.login);
-      let remoteStr = null;
-      try {
-        remoteStr = await fetchRemoteFile();
-      } catch (ge) {
-        if (ge.status === 404) remoteStr = null; else throw ge;
-      }
-      if (remoteStr === null) {
-        const put = await ghPutFile(cloud.login, b64encode(JSON.stringify(db)), null);
-        cloud.sha = put.content.sha; saveCloudMeta();
-        return;
-      }
-      if (remoteStr !== JSON.stringify(db)) {
-        const choice = await cloudPickPromise();
-        if (choice === 'cloud') {
-          applyCloudPayload(remoteStr);
-          toast('已恢复云端数据');
-        } else {
-          await cloudPush(false);
-        }
-      }
-    } catch (e) {
-      if (e.status === 401) clearCloudMeta();
-      // 网络错误保持静默，下次手动同步即可
-    }
-    refreshCloudBtn();
-  }
-
-  /* ---- 手动「立即同步」 ---- */
-  async function syncNow() {
-    if (!cloud || !cloud.token) return openCloudModal();
-    if (cloudSyncing) return;
-    try {
-      const localStr = JSON.stringify(db);
-      let remoteStr = null;
-      try {
-        remoteStr = await fetchRemoteFile();
-      } catch (ge) {
-        if (ge.status !== 404) throw ge;
-      }
-      if (remoteStr === localStr) return toast('已是最新');
-      await cloudPush(false);
-    } catch (e) { toast(ghErrText(e)); }
-  }
-
-  /* ---- 云同步 UI ---- */
-  function refreshCloudBtn() {
-    const btn = $('#btn-cloud');
-    if (!btn) return;
-    btn.classList.toggle('is-linked', !!(cloud && cloud.token));
-    btn.classList.toggle('is-busy', !!cloudSyncing);
-    btn.title = !cloudConfigured() ? '云同步未配置'
-      : !cloud ? '云同步：点此登录'
-      : cloudSyncing ? '云同步：正在同步…' : '云同步：已连接（' + cloud.login + '）';
-  }
-  function showCloudAuth() {
-    stopDevicePolling();
-    $('#cloud-auth').classList.remove('hidden');
-    $('#cloud-account').classList.add('hidden');
-    showLoginStart();
-  }
-  function showCloudAccount() {
-    $('#cloud-auth').classList.add('hidden');
-    $('#cloud-account').classList.remove('hidden');
-    $('#cloud-name').textContent = cloud.login;
-    $('#cloud-avatar').textContent = (cloud.login || '?').slice(0, 1).toUpperCase();
-    $('#cloud-status').textContent = cloudSyncing ? '正在同步…' : (cloudDirty ? '有改动待同步' : '已连接 · 所有改动已同步');
-  }
-  function openCloudModal() {
-    if (!cloudConfigured()) return toast('云同步尚未配置');
-    if (cloud && cloud.token) showCloudAccount(); else showCloudAuth();
-    openModal('#modal-cloud');
-  }
-
-  $('#btn-cloud').addEventListener('click', openCloudModal);
-  $('#gh-start').addEventListener('click', startDeviceLogin);
-  $('#gh-cancel-device').addEventListener('click', () => {
-    stopDevicePolling();
-    closeModals();
-  });
-  $('#gh-token-ok').addEventListener('click', startWebTokenLogin);
-  $('#gh-token-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); startWebTokenLogin(); }
-  });
-  $('#cloud-logout').addEventListener('click', () => {
-    stopDevicePolling();
-    closeModals();
-    clearCloudMeta();
-    toast('已退出云同步，本机数据不受影响');
-  });
-  $('#cloud-sync-now').addEventListener('click', () => { closeModals(); syncNow(); });
-
-  /* ============ 云同步（Supabase · 邮箱账号 · 整库 jsonb 同步） ============
-     与 GitHub 通道并存、互不影响：登录 Supabase 账号后，整库 db 以 jsonb 存入
-     表 sync_data（每个用户一行），保存后自动上传、换设备登录自动恢复。
-     SDK 经 CDN 加载；离线/加载失败时本通道静默停用，不影响其他功能。 */
+  /* ============ 云同步（Supabase · 邮箱账号 · 整库 jsonb · 基线式三方同步） ============
+     未登录：启动即弹出不可关闭的登录门；登录后整库 db 以 jsonb 存入表 sync_data
+     （每个用户一行，RLS 隔离）。保存后 1.5s 自动上传，启动自动检查云端更新。
+     靠「基线（上次同步时的数据快照）」做三方比对，仅在真正冲突时才弹窗。 */
   const SUPA_URL = 'https://fdmahwltwoypecyjpmfb.supabase.co';
   const SUPA_ANON = 'sb_publishable_dAFSkJ5BungbrDlG7BqxrA_YqZtPIDq';
   const SUPA_TABLE = 'sync_data';
-  let supa = null;            // Supabase 客户端
+  const BASELINE_KEY = 'wetalk_baseline_v1';
+
+  let supa = null;
   let supaUser = null;
   let supaSyncing = false;
   let supaDirty = false;
   let supaPushTimer = null;
+  let pickPromise = null;          // 全局唯一冲突弹窗，防止多处同步逻辑重复弹窗
+  let authMode = 'login';
 
-  function supaEnabled() { return !!(window.supabase && SUPA_URL); }
+  function supaReady() { return !!(window.supabase && SUPA_URL); }
+
   function initSupa() {
-    if (!supaEnabled()) return;
+    if (!supaReady()) return;
     supa = window.supabase.createClient(SUPA_URL, SUPA_ANON, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
     });
@@ -1847,11 +1430,15 @@
     });
   }
 
-  /* ---- 表读写 ---- */
+  /* ---- 基线：上一次与云端达成一致时本机数据的序列化字符串 ---- */
+  function getBaseline() { return localStorage.getItem(BASELINE_KEY); }
+  function setBaseline(s) { try { localStorage.setItem(BASELINE_KEY, s); } catch (e) {} }
+
+  /* ---- 表读写（RLS 保证每用户仅自己那行） ---- */
   async function supaGetRow() {
     const { data, error } = await supa.from(SUPA_TABLE).select('payload').maybeSingle();
     if (error) throw { error: error.message };
-    return data ? data.payload : null; // jsonb，已是对象
+    return data ? data.payload : null; // jsonb 直接是对象
   }
   async function supaPutRow(payload) {
     const { error } = await supa.from(SUPA_TABLE).upsert(
@@ -1860,11 +1447,15 @@
     );
     if (error) throw { error: error.message };
   }
+
   function applySupaPayload(obj) {
     db = obj;
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    const s = JSON.stringify(db);
+    localStorage.setItem(DB_KEY, s);
+    setBaseline(s);
     applyTheme(); renderLibrary();
   }
+
   function supaErrText(e) {
     const m = e.error || '';
     if (/could not find the table|sync_data|schema cache/i.test(m))
@@ -1873,7 +1464,54 @@
     return m || '同步失败，请稍后重试';
   }
 
-  /* ---- 本地保存后自动安排上传（与 GitHub 通道同样的 1.5s 合并节奏） ---- */
+  /* ---- 唯一的冲突选择弹窗，返回 'cloud' 或 'local'；并发调用复用同一个 ---- */
+  function cloudPickPromise() {
+    if (pickPromise) return pickPromise;
+    pickPromise = new Promise(resolve => {
+      $('#cloudpick-text').textContent =
+        '云端已有一份数据。恢复云端数据会覆盖本机现有内容；保留本机内容则会覆盖云端版本。';
+      openModal('#modal-cloudpick');
+      $('#cloudpick-cloud').onclick = () => { finish('cloud'); };
+      $('#cloudpick-local').onclick = () => { finish('local'); };
+      function finish(v) {
+        closeModals();
+        const p = pickPromise; pickPromise = null;
+        resolve(v);
+      }
+    });
+    return pickPromise;
+  }
+
+  /* ---- 三方比对（本机 / 基线 / 云端）：
+     'uploaded' 已上传 · 'downloaded' 已恢复云端 · 'same' 完全一致 ---- */
+  async function reconcile() {
+    const local = JSON.stringify(db);
+    const base = getBaseline();
+    const remoteObj = await supaGetRow();
+    const remote = remoteObj ? JSON.stringify(remoteObj) : null;
+
+    if (remote === null) {                       // 云端空：上传本机
+      await supaPutRow(db); setBaseline(local);
+      return 'uploaded';
+    }
+    if (remote === local) { setBaseline(local); return 'same'; }
+
+    const localEmpty = db.docs.length === 0 && db.folders.length === 0;
+    if (base === null) {                         // 本设备从未建立基线
+      if (localEmpty) { applySupaPayload(remoteObj); return 'downloaded'; }
+      const c = await cloudPickPromise();
+      if (c === 'cloud') { applySupaPayload(remoteObj); return 'downloaded'; }
+      await supaPutRow(db); setBaseline(local); return 'uploaded';
+    }
+    if (local === base) { applySupaPayload(remoteObj); return 'downloaded'; } // 本机无改动：静默拉取
+    if (remote === base) { await supaPutRow(db); setBaseline(local); return 'uploaded'; } // 云端无改动：静默推送
+    // 双方都偏离基线：真正的冲突才询问
+    const c = await cloudPickPromise();
+    if (c === 'cloud') { applySupaPayload(remoteObj); return 'downloaded'; }
+    await supaPutRow(db); setBaseline(local); return 'uploaded';
+  }
+
+  /* ---- 本地保存后自动安排上传（1.5s 合并连续编辑） ---- */
   function scheduleSupaPush() {
     if (!supaUser) return;
     supaDirty = true;
@@ -1886,84 +1524,146 @@
     if (supaSyncing) { supaDirty = true; return; }
     supaSyncing = true; renderUserPanel();
     try {
-      const localStr = JSON.stringify(db);
-      const remoteObj = await supaGetRow();
-      const remoteStr = remoteObj ? JSON.stringify(remoteObj) : null;
-      if (remoteStr !== null && remoteStr !== localStr) {
-        const choice = await cloudPickPromise('Supabase 云端');
-        if (choice === 'cloud') {
-          applySupaPayload(remoteObj);
-          supaDirty = false;
-          toast('已恢复云端数据');
-          return;
-        }
-        // 选择本机覆盖：继续执行 upsert
-      }
-      await supaPutRow(db);
+      const r = await reconcile();
       supaDirty = false;
-      if (!auto) toast('已同步到云端');
+      if (auto) {
+        if (r === 'downloaded') toast('云端有更新，已自动恢复');
+      } else if (r === 'same') toast('已是最新');
+      else if (r === 'uploaded') toast('已同步到云端');
+      else toast('已恢复云端数据');
     } catch (e) {
       supaDirty = true; // 失败保留改动，下次保存/手动同步重试
       if (!auto) toast(supaErrText(e));
-      if (/JWT|expired/i.test(e.error || '')) { supaUser = null; supa.auth.signOut(); }
+      if (/JWT|expired/i.test(e.error || '')) {
+        try { supa.auth.signOut(); } catch (se) {}
+        supaUser = null;
+        openAuthGate();
+      }
     } finally {
       supaSyncing = false; renderUserPanel();
     }
   }
 
-  /* ---- 登录/注册成功后的首同步（四态：无远端 / 相同 / 本机空 / 冲突） ---- */
-  async function supaFirstSync() {
-    const localStr = JSON.stringify(db);
-    const localEmpty = db.docs.length === 0 && db.folders.length === 0;
-    const remoteObj = await supaGetRow();
-    if (!remoteObj) {
-      await supaPutRow(db);
-      toast('登录成功，本机数据已上传云端');
-    } else if (JSON.stringify(remoteObj) === localStr) {
-      toast('登录成功，数据已是同步状态');
-    } else if (localEmpty) {
-      applySupaPayload(remoteObj);
-      toast('登录成功，已恢复云端数据');
-    } else {
-      const choice = await cloudPickPromise('Supabase 云端');
-      if (choice === 'cloud') {
-        applySupaPayload(remoteObj);
-        toast('已恢复云端数据');
-      } else {
-        await supaPutRow(db);
-        toast('本机数据已上传');
-      }
-    }
+  /* ============ 强制登录门 ============ */
+  function openAuthGate() {
+    authMode = 'login';
+    document.querySelectorAll('.auth-tab').forEach(t =>
+      t.classList.toggle('active', t.dataset.auth === 'login'));
+    $('#auth-submit').textContent = '登录';
+    $('#auth-note-pw').classList.add('hidden');
+    $('#auth-pw2-wrap').classList.add('hidden');
+    $('#auth-email').value = '';
+    $('#auth-password').value = '';
+    $('#auth-password2').value = '';
+    $('#auth-error').textContent = '';
+    document.querySelectorAll('.pw-eye').forEach(resetOneEye);
+    openModal('#modal-auth');
   }
 
-  /* ---- 启动：恢复会话并检查云端新版本 ---- */
+  document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      authMode = tab.dataset.auth;
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t === tab));
+      $('#auth-pw2-wrap').classList.toggle('hidden', authMode === 'login');
+      $('#auth-submit').textContent = authMode === 'login' ? '登录' : '注册并同步';
+      $('#auth-note-pw').classList.toggle('hidden', authMode === 'login');
+      $('#auth-error').textContent = '';
+    });
+  });
+
+  function closeAuthSuccess() {
+    closeUserPanel();
+    $('#modal-auth').classList.add('hidden');
+    if (!document.querySelector('.modal:not(.hidden)')) {
+      $('#modal-mask').classList.add('hidden');
+    }
+    renderUserPanel();
+  }
+
+  $('#auth-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('#auth-email').value.trim();
+    const pwd = $('#auth-password').value;
+    const err = $('#auth-error');
+    err.textContent = '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = '请输入正确的邮箱地址'; return; }
+    if (pwd.length < 6) { err.textContent = '密码至少 6 位'; return; }
+    const btn = $('#auth-submit');
+    btn.disabled = true;
+    try {
+      if (!supa) throw { error: '云端连接初始化失败，请检查网络后刷新页面' };
+      if (authMode === 'signup') {
+        if ($('#auth-password2').value !== pwd) throw { error: '两次输入的密码不一致' };
+        const { data, error } = await supa.auth.signUp({ email, password: pwd });
+        if (error) throw { error: error.message };
+        if (data.session) {
+          supaUser = data.session.user;
+          await reconcile();
+          closeAuthSuccess();
+          toast('登录成功，数据已开始同步');
+        } else {
+          // 项目开启了邮箱验证：无会话返回
+          err.textContent = '注册成功，请查收邮件并点击验证链接后再登录';
+        }
+      } else {
+        const { error } = await supa.auth.signInWithPassword({ email, password: pwd });
+        if (error) throw { error: error.message };
+        const { data } = await supa.auth.getSession();
+        supaUser = data.session ? data.session.user : null;
+        await reconcile();
+        closeAuthSuccess();
+        toast('登录成功');
+      }
+    } catch (ex) {
+      err.textContent = ex.error || '操作失败，请重试';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* ---- 密码眼睛：查看 / 隐藏 ---- */
+  function resetOneEye(b) {
+    const inp = document.getElementById(b.dataset.target);
+    if (inp) inp.type = 'password';
+    b.classList.remove('is-hidden-pw');
+  }
+  document.querySelectorAll('.pw-eye').forEach(b => {
+    b.addEventListener('click', () => {
+      const inp = document.getElementById(b.dataset.target);
+      if (!inp) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      b.classList.toggle('is-hidden-pw', !show);
+      b.setAttribute('aria-label', show ? '隐藏密码' : '查看密码');
+    });
+  });
+
+  /* ============ 启动：恢复会话，自动同步；无会话弹登录门 ============ */
   async function supaBoot() {
-    if (!supaEnabled()) return;
+    if (!supaReady()) {
+      toast('云端连接加载失败，请检查网络后刷新页面');
+      return;
+    }
     initSupa();
     const { data } = await supa.auth.getSession();
     supaUser = data.session ? data.session.user : null;
     renderUserPanel();
-    if (!supaUser) return;
+    if (!supaUser) { openAuthGate(); return; }
     try {
-      const remoteObj = await supaGetRow();
-      if (!remoteObj) { await supaPutRow(db); return; }
-      if (JSON.stringify(remoteObj) !== JSON.stringify(db)) {
-        const choice = await cloudPickPromise('Supabase 云端');
-        if (choice === 'cloud') {
-          applySupaPayload(remoteObj);
-          toast('已恢复云端数据');
-        } else {
-          await supaPush(false);
-        }
-      }
+      const r = await reconcile();
+      if (r === 'downloaded') toast('云端有更新，已自动同步');
     } catch (e) {
-      if (/JWT|expired/i.test(e.error || '')) { supaUser = null; supa.auth.signOut(); }
-      // 网络错误保持静默，下次手动同步即可
+      if (/JWT|expired/i.test(e.error || '')) {
+        try { await supa.auth.signOut(); } catch (se) {}
+        supaUser = null;
+        openAuthGate();
+      }
+      // 其他错误（如断网）静默，可用「立即同步」重试
     }
     renderUserPanel();
   }
 
-  /* ---- 左侧账号栏 UI ---- */
+  /* ============ 左侧账号栏 ============ */
   function renderUserPanel() {
     if (!$('#user-panel')) return;
     if (supaUser) {
@@ -1991,64 +1691,22 @@
 
   $('#lib-logo').addEventListener('click', openUserPanel);
   $('#user-mask').addEventListener('click', closeUserPanel);
+  $('#up-login-btn').addEventListener('click', () => {
+    closeUserPanel();
+    openAuthGate();
+  });
   $('#up-sync').addEventListener('click', () => supaPush(false));
   $('#up-logout').addEventListener('click', async () => {
     supaDirty = false;
-    if (supa) await supa.auth.signOut();
+    clearTimeout(supaPushTimer);
+    if (supa) { try { await supa.auth.signOut(); } catch (e) {} }
     supaUser = null;
     renderUserPanel();
+    closeUserPanel();
+    openAuthGate();
     toast('已退出登录，本机数据不受影响');
   });
   $('#getapp-cancel').addEventListener('click', closeModals);
-
-  /* 登录/注册 标签切换 */
-  let upMode = 'login';
-  document.querySelectorAll('.up-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      upMode = tab.dataset.up;
-      document.querySelectorAll('.up-tab').forEach(t => t.classList.toggle('active', t === tab));
-      $('#up-password2').classList.toggle('hidden', upMode === 'login');
-      $('#up-submit').textContent = upMode === 'login' ? '登录' : '注册并同步';
-      $('#up-error').textContent = '';
-    });
-  });
-
-  /* 登录/注册 提交 */
-  $('#up-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const email = $('#up-email').value.trim();
-    const pwd = $('#up-password').value;
-    const err = $('#up-error');
-    err.textContent = '';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = '请输入正确的邮箱地址'; return; }
-    if (pwd.length < 6) { err.textContent = '密码至少 6 位'; return; }
-    const btn = $('#up-submit');
-    btn.disabled = true;
-    try {
-      if (!supa) throw { error: '云端模块加载失败，请检查网络后刷新页面' };
-      if (upMode === 'signup') {
-        if ($('#up-password2').value !== pwd) throw { error: '两次输入的密码不一致' };
-        const { data, error } = await supa.auth.signUp({ email, password: pwd });
-        if (error) throw { error: error.message };
-        if (data.session) {
-          await supaFirstSync();
-          closeUserPanel();
-        } else {
-          // 项目开启了邮箱验证：无会话返回
-          err.textContent = '注册成功，请查收邮件并点击验证链接后再登录';
-        }
-      } else {
-        const { error } = await supa.auth.signInWithPassword({ email, password: pwd });
-        if (error) throw { error: error.message };
-        await supaFirstSync();
-        closeUserPanel();
-      }
-    } catch (ex) {
-      err.textContent = ex.error || '操作失败，请重试';
-    } finally {
-      btn.disabled = false;
-    }
-  });
 
   /* 底部跨端入口：App → 外部浏览器打开网页版；网页 → 下载 App 弹窗 */
   const WEB_URL = 'https://tatoo79.github.io/WeTalk/';
@@ -2062,7 +1720,7 @@
     });
   } else {
     $('#up-cross').innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>下载应用';
+      '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>下载应用';
     $('#up-cross').addEventListener('click', () => {
       closeUserPanel();
       openModal('#modal-getapp');
@@ -2075,7 +1733,6 @@
   applyTheme();
   refreshSortBtn();
   renderLibrary();
-  cloudBoot();
   supaBoot();
 
   /* 异常退出（关页/刷新）前兜底保存草稿与自动标题 */
@@ -2089,3 +1746,4 @@
     save();
   });
 })();
+

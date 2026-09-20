@@ -13,9 +13,6 @@
   <header class="lib-header">
     <div class="lib-title">
       <h1 id="lib-logo" title="账号 / 同步">WeTalk</h1>
-      <button class="icon-btn" id="btn-cloud" title="云同步">
-        <svg viewBox="0 0 24 24"><path d="M17.5 19H7a4 4 0 0 1-.8-7.9A6 6 0 0 1 17.8 9.5 4.5 4.5 0 0 1 17.5 19z"/></svg>
-      </button>
     </div>
     <div class="header-search">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -37,20 +34,15 @@
     <aside class="user-panel" id="user-panel">
       <div class="up-head">账号</div>
 
-      <!-- 未登录：登录 / 注册 -->
+      <!-- 未登录：登录入口 -->
       <div id="up-auth">
-        <div class="up-tabs">
-          <button type="button" class="up-tab active" data-up="login">登录</button>
-          <button type="button" class="up-tab" data-up="signup">注册</button>
+        <div class="up-guest">
+          <span class="up-guest-ic">
+            <svg viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </span>
+          <p class="up-guest-text">登录账号后<br>数据将自动云端同步</p>
+          <button type="button" class="primary-btn" id="up-login-btn">登录 / 注册</button>
         </div>
-        <form id="up-form" autocomplete="on">
-          <input type="email" id="up-email" placeholder="邮箱地址" autocomplete="email" spellcheck="false">
-          <input type="password" id="up-password" placeholder="密码（至少 6 位）" autocomplete="current-password">
-          <input type="password" id="up-password2" class="hidden" placeholder="再次输入密码" autocomplete="new-password">
-          <div class="prompt-error" id="up-error"></div>
-          <button type="submit" class="primary-btn up-submit" id="up-submit">登录</button>
-        </form>
-        <p class="up-note">注册一个免费账号，数据保存在云端；同一账号在 App / 网页登录即可同步全部记录。</p>
       </div>
 
       <!-- 已登录：账号信息 -->
@@ -271,55 +263,43 @@
   <div class="modal-center"><button class="primary-btn" id="btn-move-ok">移动到此处</button></div>
 </div>
 
-<!-- 云同步弹窗：未登录（GitHub 设备授权） -->
-<div class="modal cloud-modal hidden" id="modal-cloud">
-  <div id="cloud-auth">
-    <h3>云同步</h3>
-    <!-- 起始：App 设备授权 -->
-    <div id="gh-login">
-      <div id="gh-login-app">
-        <p class="cloud-desc">使用 GitHub 账号登录后，数据会保存在你账号下自动创建的<b>私有仓库</b>中，只有你可见；换设备登录同一账号即可恢复全部记录。</p>
-        <button class="primary-btn gh-start-btn" id="gh-start">
-          <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-          使用 GitHub 登录
-        </button>
-        <p class="cloud-hint">登录走 GitHub 官方授权页，本应用不会接触你的密码。首次使用需在 GitHub 注册一个免费账号。</p>
-      </div>
-      <!-- 网页端：粘贴访问令牌 -->
-      <div id="gh-login-web" class="hidden">
-        <p class="cloud-desc">粘贴一个 GitHub <b>访问令牌（Access Token）</b>，数据会保存到你账号下自动创建的私有仓库中，只有你可见。令牌仅保存在当前浏览器本地，不会经过其他服务器。</p>
-        <input type="password" id="gh-token-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" spellcheck="false" autocomplete="off">
-        <div class="prompt-error" id="gh-token-error"></div>
-        <button class="primary-btn gh-start-btn" id="gh-token-ok">连接并同步</button>
-        <p class="cloud-hint">令牌生成方式（免费，约 1 分钟）：GitHub 右上头像 → Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b> → Generate new token (classic) → 勾选 <b>repo</b> 后生成。</p>
-      </div>
-    </div>
-    <!-- 授权码视图 -->
-    <div id="gh-device" class="hidden">
-      <p class="gh-step">① 在浏览器打开以下链接</p>
-      <div class="gh-url" id="gh-url">github.com/login/device</div>
-      <p class="gh-step">② 输入一次性授权码</p>
-      <div class="gh-code" id="gh-code">XXXX-XXXX</div>
-      <p class="gh-wait" id="gh-wait">等待授权中…完成后自动继续</p>
-      <div class="modal-center"><button class="ghost-btn" id="gh-cancel-device">取消</button></div>
+<!-- 强制登录门（未登录时不可关闭） -->
+<div class="modal auth-modal hidden" id="modal-auth">
+  <div class="auth-brand">
+    <img src="images/wetalk-logo.png" alt="WeTalk" class="auth-logo">
+    <div class="auth-brand-text">
+      <div class="auth-title">WeTalk</div>
+      <div class="auth-sub">登录后数据自动云端同步</div>
     </div>
   </div>
-  <!-- 云同步弹窗：已登录 -->
-  <div id="cloud-account" class="hidden">
-    <h3>云同步</h3>
-    <div class="cloud-user">
-      <span class="cloud-avatar" id="cloud-avatar"></span>
-      <div class="cloud-meta">
-        <div class="cloud-name" id="cloud-name"></div>
-        <div class="cloud-status" id="cloud-status">已连接</div>
-      </div>
-    </div>
-    <div class="modal-center">
-      <button class="ghost-btn" id="cloud-logout">退出登录</button>
-      <button class="primary-btn" id="cloud-sync-now">立即同步</button>
-    </div>
-    <p class="cloud-hint">编辑内容会在保存后自动上传。多台设备同时编辑时，以最后保存的版本为准。</p>
+
+  <div class="auth-tabs">
+    <button type="button" class="auth-tab active" data-auth="login">登录</button>
+    <button type="button" class="auth-tab" data-auth="signup">注册</button>
   </div>
+
+  <form id="auth-form" autocomplete="on">
+    <input type="email" id="auth-email" placeholder="邮箱地址" autocomplete="email" spellcheck="false">
+    <div class="pw-wrap">
+      <input type="password" id="auth-password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+      <button type="button" class="pw-eye" data-target="auth-password" title="查看 / 隐藏密码" aria-label="查看密码">
+        <svg class="ic-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="ic-eye-off" viewBox="0 0 24 24"><path d="M9.9 4.2A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.7 17.7 0 0 1-3.2 4M6.6 6.6A17.6 17.6 0 0 0 2 11s3.5 7 10 7a10.8 10.8 0 0 0 5-1.2"/><path d="m2 2 20 20"/><path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"/></svg>
+      </button>
+    </div>
+    <div class="pw-wrap hidden" id="auth-pw2-wrap">
+      <input type="password" id="auth-password2" placeholder="再次输入密码" autocomplete="new-password">
+      <button type="button" class="pw-eye" data-target="auth-password2" title="查看 / 隐藏密码" aria-label="查看密码">
+        <svg class="ic-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="ic-eye-off" viewBox="0 0 24 24"><path d="M9.9 4.2A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.7 17.7 0 0 1-3.2 4M6.6 6.6A17.6 17.6 0 0 0 2 11s3.5 7 10 7a10.8 10.8 0 0 0 5-1.2"/><path d="m2 2 20 20"/><path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"/></svg>
+      </button>
+    </div>
+    <div class="prompt-error" id="auth-error"></div>
+    <button type="submit" class="primary-btn auth-submit" id="auth-submit">登录</button>
+  </form>
+
+  <p class="auth-note" id="auth-note">注册一个免费账号，数据保存在云端；<br>同一账号在 App / 网页登录即可同步全部记录。</p>
+  <p class="auth-note auth-note-pw hidden" id="auth-note-pw">建议使用与邮箱登录密码不同的密码。</p>
 </div>
 
 <!-- 云端/本机数据冲突选择弹窗 -->
