@@ -66,11 +66,9 @@ const WTExport = (() => {
     const L = doc.settings.left.name || '';
     const R = doc.settings.right.name || '';
     let out = `（左）${L}\n（右）${R}\n\n`;
-    const WIDTH = 56;
     [...doc.lines].sort((a, b) => a.row - b.row).forEach(line => {
-      const t = htmlToText(line.html);
-      if (line.side === 'L') out += t + '\n\n';
-      else out += ' '.repeat(Math.max(0, WIDTH - t.length * 2)) + t + '\n\n';
+      // 左右内容各自顶自己栏位左侧对齐（不再用空格把右栏推到行尾）
+      out += htmlToText(line.html) + '\n\n';
     });
     return new Blob([out], { type: 'text/plain;charset=utf-8' });
   }
@@ -248,7 +246,8 @@ const WTExport = (() => {
     const sorted = [...doc.lines].sort((a, b) => a.row - b.row);
     let bodyRows = '';
     sorted.forEach((line, i) => {
-      const p = paraXml(normHtml(line.html), line.side === 'L' ? 'left' : 'right');
+      // 右栏内容放在右侧栏内，但文字同样左对齐
+      const p = paraXml(normHtml(line.html), 'left');
       if (line.side === 'L') {
         bodyRows += `<w:tr>${cellXml(W, p)}${cellXml(W, '<w:p/>')}</w:tr>`;
       } else {
@@ -363,7 +362,7 @@ const WTExport = (() => {
   .body{display:flex;flex-direction:column;}
   .row{display:flex;width:100%;min-height:2em;}
   .cell{width:50%;font-size:11pt;line-height:2.05;padding:8px 14px;word-break:break-word;white-space:pre-wrap;}
-  .cell.l{text-align:left;} .cell.r{text-align:right;}
+  .cell.l,.cell.r{text-align:left;}
   .rl{margin:2px 56px 0;border-top:1px solid #e0e2e7;}
   .body > .rl:last-child{display:none;}
   @media print{ body{padding:22px 30px;} }

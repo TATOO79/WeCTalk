@@ -1431,14 +1431,25 @@
   let supaDirty = false;
   let supaPushTimer = null;
   let pickPromise = null;          // 全局唯一冲突弹窗，防止多处同步逻辑重复弹窗
+  let cloudPickHandled = false;    // 本次打开 App/网站已处理过：后续冲突静默解决不再弹
   let authMode = 'login';
 
   function supaReady() { return !!(window.supabase && SUPA_URL); }
 
   function initSupa() {
     if (!supaReady()) return;
+    // 所有请求统一 12s 超时：弱网下 fetch 可能无限挂起（注册后表现为一直同步）
+    const nativeFetch = window.fetch.bind(window);
+    function timedFetch(url, opts) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 12000);
+      if (opts && opts.signal) opts.signal.addEventListener('abort', () => ctl.abort());
+      return nativeFetch(url, Object.assign({}, opts, { signal: ctl.signal }))
+        .finally(() => clearTimeout(timer));
+    }
     supa = window.supabase.createClient(SUPA_URL, SUPA_ANON, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      global: { fetch: timedFetch }
     });
     supa.auth.onAuthStateChange((event, session) => {
       supaUser = session ? session.user : null;
@@ -1482,6 +1493,8 @@
 
   /* ---- 唯一的冲突选择弹窗，返回 'cloud' 或 'local'；并发调用复用同一个 ---- */
   function cloudPickPromise() {
+    // 本次启动用户已做过选择：后续任何冲突都静默保留本机内容，不再弹窗
+    if (cloudPickHandled) return Promise.resolve('local');
     if (pickPromise) return pickPromise;
     pickPromise = new Promise(resolve => {
       $('#cloudpick-text').innerHTML =
@@ -1491,6 +1504,7 @@
       $('#cloudpick-local').onclick = () => { finish('local'); };
       function finish(v) {
         closeModals();
+        cloudPickHandled = true;   // 标记本次启动已处理
         const p = pickPromise; pickPromise = null;
         resolve(v);
       }
@@ -1550,6 +1564,10 @@
     } catch (e) {
       supaDirty = true; // 失败保留改动，下次保存/手动同步重试
       if (!auto) toast(supaErrText(e));
+      // 自动同步失败（超时/断网）：3s 后静默重试，直到成功
+      if (auto && !/JWT|expired/i.test(e.error || '')) {
+        setTimeout(() => { if (supaUser) supaPush(true); }, 3000);
+      }
       if (/JWT|expired/i.test(e.error || '')) {
         try { supa.auth.signOut(); } catch (se) {}
         supaUser = null;
@@ -1614,9 +1632,9 @@
         if (error) throw { error: error.message };
         if (data.session) {
           supaUser = data.session.user;
-          await reconcile();
           closeAuthSuccess();
-          toast('登录成功，数据已开始同步');
+          toast('登录成功，数据正在自动同步');
+          supaPush(true);   // 后台首同步：超时也不阻塞进入，失败自动重试
         } else {
           // 项目开启了邮箱验证：无会话返回
           err.textContent = '注册成功，请查收邮件并点击验证链接后再登录';
@@ -1626,9 +1644,9 @@
         if (error) throw { error: error.message };
         const { data } = await supa.auth.getSession();
         supaUser = data.session ? data.session.user : null;
-        await reconcile();
         closeAuthSuccess();
         toast('登录成功');
+        supaPush(true);   // 后台同步云端数据，不阻塞进入
       }
     } catch (ex) {
       err.textContent = ex.error || '操作失败，请重试';

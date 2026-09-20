@@ -625,9 +625,12 @@ html:not(.is-app) .side-tag { cursor: pointer; }
   box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow);
   outline: none;
 }
-.input-box:empty { text-align: center; }   /* 空状态引导文字居中，开始输入后恢复左对齐 */
+/* 提示层绝对定位居中（不占文本流），输入框本身保持左对齐，光标始终居左 */
 .input-box:empty::before {
-  content: attr(data-ph); color: var(--text-2); opacity: .55; pointer-events: none;
+  content: attr(data-ph);
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2); opacity: .55; pointer-events: none;
 }
 
 /* ============ 弹窗 ============ */
