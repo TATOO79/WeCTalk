@@ -951,7 +951,7 @@ html, body { overscroll-behavior: none; }
 .cloudpick-modal { width: 350px; max-width: 94vw; }
 .cloudpick-modal p {
   font-size: 13.5px; color: var(--text-2);
-  text-align: justify; text-justify: inter-ideograph; line-height: 1.9;
+  text-align: center; line-height: 1.9;
 }
 .cloudpick-modal .modal-center { gap: 10px; }
 .cloudpick-modal .modal-center button {

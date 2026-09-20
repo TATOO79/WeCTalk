@@ -1475,8 +1475,8 @@
   function cloudPickPromise() {
     if (pickPromise) return pickPromise;
     pickPromise = new Promise(resolve => {
-      $('#cloudpick-text').textContent =
-        '云端已有一份数据。恢复云端数据会覆盖本机现有内容；保留本机内容则会覆盖云端版本。';
+      $('#cloudpick-text').innerHTML =
+        '云端已有一份数据。<br>恢复云端数据，将覆盖本机内容；<br>保留本机内容，将覆盖云端版本。';
       openModal('#modal-cloudpick');
       $('#cloudpick-cloud').onclick = () => { finish('cloud'); };
       $('#cloudpick-local').onclick = () => { finish('local'); };
