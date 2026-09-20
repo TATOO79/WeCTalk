@@ -1680,8 +1680,9 @@
     }
   }
   async function afterDeviceAuth(token) {
+    cloud = { token, login: null, sha: null };
     const me = await ghMe();
-    cloud = { token, login: me.login, sha: null };
+    cloud.login = me.login;
     saveCloudMeta();
     await ensureRepo(cloud.login);
     const localStr = JSON.stringify(db);
