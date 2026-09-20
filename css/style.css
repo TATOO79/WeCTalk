@@ -950,8 +950,11 @@ html, body { overscroll-behavior: none; }
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 700;
 }
-.cloud-meta { min-width: 0; }
-.cloud-name { font-size: 15px; font-weight: 650; }
+.cloud-meta { min-width: 0; flex: 1; }
+.cloud-name {
+  font-size: 15px; font-weight: 650;
+  white-space: normal; overflow-wrap: anywhere;   /* 长邮箱/西文单词可在任意字符间断行 */
+}
 .cloud-status { font-size: 12.5px; color: var(--text-2); margin-top: 3px; }
 
 .cloudpick-modal { width: 350px; max-width: 94vw; }

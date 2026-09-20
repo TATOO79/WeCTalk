@@ -1348,7 +1348,7 @@
   $('#btn-theme-ed').onclick = toggleTheme;
 
   /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v5' : 'wetalk_guide_seeded_v4';
+  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v6' : 'wetalk_guide_seeded_v5';
   const GUIDE_TITLES = [
     '欢迎使用 WeTalk · 使用说明',
     '欢迎使用WeTalk·网页使用说明',
@@ -1371,11 +1371,9 @@
     const diagram =
       '<svg viewBox="0 0 240 132" style="width:100%;max-width:252px;height:auto;margin:8px 0 2px;fill:none;stroke:currentColor;stroke-width:1.5;">'
       + '<line x1="120" y1="6" x2="120" y2="126" style="stroke:currentColor;opacity:.25;stroke-dasharray:4 4;stroke-width:1.2"/>'
-      + '<rect x="14" y="12"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.16;stroke:none"/>'
       + '<rect x="144" y="12"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.5;stroke:none"/>'
-      + '<rect x="14" y="52"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.16;stroke:none"/>'
       + '<rect x="144" y="52"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.5;stroke:none"/>'
-      + '<rect x="144" y="92"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.5;stroke:none"/>'
+      + '<rect x="14" y="92"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.16;stroke:none"/>'
       + '</svg>';
     const switchTip = IS_APP
       ? '<b>四、输入与切换（手机端）</b><br>· 输入框左右各有一个圆圈，<u>点左圈发送到左栏，点右圈发送到右栏</u>；最近一次发送的一侧圆圈会放大加框，该侧输入栏向中间铺开一层渐变作为选中标识；什么都没输入时点击不会发送任何内容，输入了空格则会照常发送空格。<br>· <u>回车</u>只在输入框内换行，不会发送。<br>案例：右侧输入「明天三点见面」点右圈 → 右栏出现气泡；再输入「好的」点左圈 → 内容落在左侧对应行。<br>· <u>双指张合</u>可放大 / 缩小对话区字号，只影响本机预览、不影响导出，字号会被记住。<br>注意：编辑页内系统返回手势不会离开页面（第一次会提示点左上角箭头）；在文件夹中返回上一级，在桌面连续两次返回退出 App。'
@@ -1397,7 +1395,7 @@
       '<b>五、气泡修改与补全</b><br>· <u>单击任意已发送气泡</u>即可直接修改文字；保存方式是点该气泡之外的任意位置（仅退出本次编辑，不会触发其他操作），再次点击才恢复正常操作；把文字全部删空后退出，该气泡所在行会整体删除，后续行自动补位。<br>· <u>单击两个气泡之间的缝隙</u>（含第一行与名称栏之间）进入「补全模式」：中间出现横跨左右的白色圆框，把内容' + (IS_APP ? '用左右圆圈发送' : '回车发送（可用方向键+回车选侧）') + '进去，可连续补多条；点右下角 ✓ 完成，一条没发就点 ✓ 则取消补全、各行回到原位。（最后一条气泡下方不会触发补全。）<br>· 点顶栏的「字体编辑」图标，下方会展开 B / U 工具条；不仅能给即将输入的文字加格式，也可以<b>选中已发送气泡里的文字</b>再点 B / U' + (IS_APP ? '' : '（气泡内也支持 Ctrl+B、Ctrl+U）') + '，只格式化选中的部分，再点一次图标收起工具条。',
       '<b>六、人物设置</b><br>点左上角的人型图标（角色设置），可为左右两人分别设置：<br>· <u>头像</u>：从本地图库选择，或切换到纯色模式点选色环 / 输入色号，颜色会即时显示，直接点保存即可（无需再点行内小确定）。<br>· <u>名字</u>：设置后，输入框左右两个圆圈会分别显示两人名字的第一个字（未设置时仍显示「左 / 右」），对话区上方也会在左右两栏居中显示对应名字。<br>没有手动填写标题时，文稿会自动命名为「左边名字和右边名字的对话」，同名时自动追加数字区分。',
       saveTip,
-      '<b>八、导出三种格式</b><br>点右上角导出图标：<br>· <u>TXT</u>：首行标注（左）（右）名字，右侧对话靠右排列。<br>· <u>Word</u>：双栏排版、左右绝不混行，顶部含居中头像与名字，保留加粗、下划线与头像图片。<br>' + (IS_APP ? 'TXT / Word 确认文件名后会打开系统文件选择器，由你指定具体保存位置。<br>· ' : '· ') + '<u>PDF</u>：版式与 Word 一致，在系统打印窗口选择「另存为 PDF」即可。',
+      '<b>八、导出三种格式</b><br>点右上角导出图标：<br>· <u>TXT</u>：首行标注（左）（右）名字，左右内容均靠左排列。<br>· <u>Word</u>：双栏排版、左右绝不混行，顶部含居中头像与名字，保留加粗、下划线与头像图片。<br>' + (IS_APP ? 'TXT / Word 确认文件名后会打开系统文件选择器，由你指定具体保存位置。<br>· ' : '· ') + '<u>PDF</u>：版式与 Word 一致，在系统打印窗口选择「另存为 PDF」即可。',
       '<b>九、账号与同步</b><br>打开应用时使用邮箱注册并登录后，所有文稿、设置和头像会自动保存到<b>云端</b>：同一账号在手机 App / 网页登录，即可自动同步全部记录。点顶部标题「WeTalk」可查看账号信息、立即同步或切换账号；退出登录不影响本机已有数据。' + (IS_APP ? '卸载 App 或清除应用数据会同时删除本机内容，请重要记录及时导出备份。' : '清理浏览器数据会同时删除本机内容，请重要记录及时导出备份。') + '<br><br>准备好了，就点右下角 ＋ 开始第一段对话吧。'
     ];
     const doc = {
@@ -1512,33 +1510,54 @@
     return pickPromise;
   }
 
+  /* ---- 语义化深比较：云端 jsonb 往返后即使字节串不同，只要内容相同即视为一致 ---- */
+  function deepEqual(a, b) {
+    if (a === b) return true;
+    if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+    const arrA = Array.isArray(a), arrB = Array.isArray(b);
+    if (arrA !== arrB) return false;
+    if (arrA) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+      return true;
+    }
+    const ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return false;
+    for (const k of ka) {
+      if (!Object.prototype.hasOwnProperty.call(b, k) || !deepEqual(a[k], b[k])) return false;
+    }
+    return true;
+  }
+
   /* ---- 三方比对（本机 / 基线 / 云端）：
      'uploaded' 已上传 · 'downloaded' 已恢复云端 · 'same' 完全一致 ---- */
   async function reconcile() {
     const local = JSON.stringify(db);
+    const localObj = JSON.parse(local);   // 固定快照：上传内容与基线字符串保证完全一致
     const base = getBaseline();
+    let baseObj = null;
+    if (base) { try { baseObj = JSON.parse(base); } catch (e) { baseObj = null; } }
     const remoteObj = await supaGetRow();
-    const remote = remoteObj ? JSON.stringify(remoteObj) : null;
 
-    if (remote === null) {                       // 云端空：上传本机
-      await supaPutRow(db); setBaseline(local);
+    if (remoteObj === null) {                       // 云端空：上传本机快照
+      await supaPutRow(localObj); setBaseline(local);
       return 'uploaded';
     }
-    if (remote === local) { setBaseline(local); return 'same'; }
+    if (deepEqual(remoteObj, localObj)) { setBaseline(local); return 'same'; }
 
     const localEmpty = db.docs.length === 0 && db.folders.length === 0;
-    if (base === null) {                         // 本设备从未建立基线
+    if (baseObj === null) {                         // 本设备从未建立基线
       if (localEmpty) { applySupaPayload(remoteObj); return 'downloaded'; }
       const c = await cloudPickPromise();
       if (c === 'cloud') { applySupaPayload(remoteObj); return 'downloaded'; }
-      await supaPutRow(db); setBaseline(local); return 'uploaded';
+      await supaPutRow(localObj); setBaseline(local); return 'uploaded';
     }
-    if (local === base) { applySupaPayload(remoteObj); return 'downloaded'; } // 本机无改动：静默拉取
-    if (remote === base) { await supaPutRow(db); setBaseline(local); return 'uploaded'; } // 云端无改动：静默推送
+    if (deepEqual(localObj, baseObj)) { applySupaPayload(remoteObj); return 'downloaded'; } // 本机无改动：静默拉取
+    if (deepEqual(remoteObj, baseObj)) { await supaPutRow(localObj); setBaseline(local); return 'uploaded'; } // 云端无改动：静默推送
     // 双方都偏离基线：真正的冲突才询问
     const c = await cloudPickPromise();
     if (c === 'cloud') { applySupaPayload(remoteObj); return 'downloaded'; }
-    await supaPutRow(db); setBaseline(local); return 'uploaded';
+    await supaPutRow(localObj); setBaseline(local); return 'uploaded';
   }
 
   /* ---- 本地保存后自动安排上传（1.5s 合并连续编辑） ---- */
