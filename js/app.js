@@ -68,6 +68,7 @@
     $(id).classList.remove('hidden');
   }
   function closeModals() {
+    stopDevicePolling();
     $('#modal-mask').classList.add('hidden');
     document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
   }
@@ -1373,7 +1374,7 @@
       '<b>六、人物设置</b><br>点左上角的人型图标（角色设置），可为左右两人分别设置：<br>· <u>头像</u>：从本地图库选择，或切换到纯色模式点选色环 / 输入色号，颜色会即时显示，直接点保存即可（无需再点行内小确定）。<br>· <u>名字</u>：设置后，输入框左右两个圆圈会分别显示两人名字的第一个字（未设置时仍显示「左 / 右」），对话区上方也会在左右两栏居中显示对应名字。<br>没有手动填写标题时，文稿会自动命名为「左边名字和右边名字的对话」，同名时自动追加数字区分。',
       saveTip,
       '<b>八、导出三种格式</b><br>点右上角导出图标：<br>· <u>TXT</u>：首行标注（左）（右）名字，右侧对话靠右排列。<br>· <u>Word</u>：双栏排版、左右绝不混行，顶部含居中头像与名字，保留加粗、下划线与头像图片。<br>' + (IS_APP ? 'TXT / Word 确认文件名后会打开系统文件选择器，由你指定具体保存位置。<br>· ' : '· ') + '<u>PDF</u>：版式与 Word 一致，在系统打印窗口选择「另存为 PDF」即可。',
-      '<b>九、数据与隐私</b><br>所有文稿、设置和头像默认保存在<b>本机</b>中，无需联网。需要在多台设备（手机 / 电脑）之间同步时，点右上角<b>云朵图标</b>，用免费的 GitHub 账号登录并授权，数据会自动保存到你账号下的私有仓库（他人不可见），换设备后登录同一账号即可恢复全部记录；也可以随时退出登录，退出不影响本机已有数据。' + (IS_APP ? '卸载 App 或清除应用数据会同时删除本机内容，请重要记录及时导出备份。' : '清理浏览器数据会同时删除本机内容，请重要记录及时导出备份。') + '<br><br>准备好了，就点右下角 ＋ 开始第一段对话吧。'
+      '<b>九、数据与隐私</b><br>所有文稿、设置和头像默认保存在<b>本机</b>中，无需联网。需要在多台设备（手机 / 电脑）之间同步时，点右上角<b>云朵图标</b>：App 内可用 GitHub 账号授权登录，网页版可粘贴访问令牌；数据会自动保存到你 GitHub 账号下的私有仓库（他人不可见），换设备后重新连接即可恢复全部记录；也可以随时退出登录，退出不影响本机已有数据。' + (IS_APP ? '卸载 App 或清除应用数据会同时删除本机内容，请重要记录及时导出备份。' : '清理浏览器数据会同时删除本机内容，请重要记录及时导出备份。') + '<br><br>准备好了，就点右下角 ＋ 开始第一段对话吧。'
     ];
     const doc = {
       id: uid(),
@@ -1441,8 +1442,25 @@
       xhr.send(body ? JSON.stringify(body) : null);
     });
   }
-  /* Device Flow 两个表单端点（github.com，非 api） */
+  /* Device Flow 表单端点（github.com，非 api）：
+     App 走 Java 原生桥（OAuth 端点不支持网页跨域）；网页端 XHR */
   function ghForm(url, params) {
+    if (IS_APP && window.WTNative) {
+      return new Promise((resolve, reject) => {
+        let raw;
+        try {
+          raw = /\/device\/code$/.test(url)
+            ? window.WTNative.ghDeviceCode(params.client_id)
+            : window.WTNative.ghPollToken(params.client_id, params.device_code);
+        } catch (e) {
+          return reject({ error: 'bridge_error', error_description: '原生桥调用失败' });
+        }
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) {}
+        if (!data) return reject({ error: 'bad_response', error_description: '返回内容无法解析' });
+        if (data.error) reject(data); else resolve(data);
+      });
+    }
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', url, true);
@@ -1452,10 +1470,12 @@
         if (xhr.readyState !== 4) return;
         let data = null;
         try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
-        if (xhr.status >= 200 && xhr.status < 300 && data) resolve(data);
+        if (xhr.status >= 200 && xhr.status < 300 && data) {
+          if (data.error) reject(data); else resolve(data);
+        }
         else reject({ status: xhr.status, error: (data && (data.error_description || data.error)) || '请求失败' });
       };
-      xhr.onerror = () => reject({ status: 0, error: '网络不可用，请检查网络连接' });
+      xhr.onerror = () => reject({ status: 0, error: 'network_error', error_description: '网络不可用，请检查网络连接' });
       xhr.send(new URLSearchParams(params).toString());
     });
   }
@@ -1563,6 +1583,29 @@
   function showLoginStart() {
     $('#gh-device').classList.add('hidden');
     $('#gh-login').classList.remove('hidden');
+    $('#gh-login-app').classList.toggle('hidden', !IS_APP);
+    $('#gh-login-web').classList.toggle('hidden', IS_APP);
+    $('#gh-token-error').textContent = '';
+    $('#gh-token-input').value = '';
+  }
+  /* 网页端：粘贴令牌连接 */
+  async function startWebTokenLogin() {
+    const input = $('#gh-token-input');
+    const err = $('#gh-token-error');
+    const token = input.value.trim();
+    err.textContent = '';
+    if (!/^(ghp_|github_pat_)[A-Za-z0-9_]{20,}$/.test(token)) {
+      err.textContent = '令牌格式不正确，应为 ghp_ 或 github_pat_ 开头';
+      return;
+    }
+    const btn = $('#gh-token-ok'); btn.disabled = true;
+    try {
+      await afterDeviceAuth(token);
+    } catch (e) {
+      err.textContent = ghErrText(e);
+    } finally {
+      btn.disabled = false;
+    }
   }
   async function startDeviceLogin() {
     if (!cloudConfigured()) return toast('云同步尚未配置');
@@ -1764,9 +1807,9 @@
     stopDevicePolling();
     closeModals();
   });
-  $('#cloud-cancel').addEventListener('click', () => {
-    stopDevicePolling();
-    closeModals();
+  $('#gh-token-ok').addEventListener('click', startWebTokenLogin);
+  $('#gh-token-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); startWebTokenLogin(); }
   });
   $('#cloud-logout').addEventListener('click', () => {
     stopDevicePolling();

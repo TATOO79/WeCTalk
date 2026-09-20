@@ -936,6 +936,16 @@ html, body { overscroll-behavior: none; }
   display: flex; align-items: center; justify-content: center;
   font-size: 14.5px;
 }
+#gh-token-input {
+  width: 100%; padding: 12px 15px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: var(--surface-2);
+  font-size: 13.5px; margin-bottom: 10px;
+  transition: border-color .2s, box-shadow .2s;
+}
+#gh-token-input:focus {
+  border-color: var(--accent-solid);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 .gh-step {
   font-size: 12.5px; color: var(--text-2);
   margin: 16px 0 8px; text-align: center;
