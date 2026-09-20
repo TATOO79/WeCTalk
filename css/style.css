@@ -997,3 +997,95 @@ html, body { overscroll-behavior: none; }
 }
 .cloudpick-modal .modal-center { justify-content: space-between; }
 .primary-btn:disabled { opacity: .55; cursor: default; filter: none; }
+
+/* ============================================================
+   左侧账号栏（点 WeTalk 标题展开）
+   ============================================================ */
+#lib-logo { cursor: pointer; user-select: none; transition: opacity .15s; }
+#lib-logo:hover { opacity: .75; }
+.user-panel {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: min(82vw, 300px);
+  background: var(--zone);
+  border-right: 1px solid var(--hairline);
+  box-shadow: 8px 0 30px rgba(0,0,0,.20);
+  z-index: 70;
+  display: flex; flex-direction: column;
+  padding: 20px 16px;
+  transform: translateX(-105%);
+  transition: transform .3s cubic-bezier(.32,.72,.28,1);
+}
+.user-panel.open { transform: none; }
+.up-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  color: var(--text-2); text-transform: uppercase;
+  padding: 0 4px 18px;
+}
+/* 登录/注册切换 */
+.up-tabs {
+  display: flex; gap: 4px; margin-bottom: 18px;
+  background: var(--surface-2); padding: 4px; border-radius: var(--radius-sm);
+}
+.up-tab {
+  flex: 1; padding: 9px 0; border-radius: 8px;
+  font-size: 13.5px; font-weight: 600; color: var(--text-2);
+  transition: color .18s, background .18s, box-shadow .18s;
+}
+.up-tab.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+/* 表单 */
+#up-form input {
+  width: 100%; padding: 12px 15px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: var(--surface-2);
+  font-size: 13.5px; margin-bottom: 10px;
+  transition: border-color .2s, box-shadow .2s;
+}
+#up-form input:focus {
+  border-color: var(--accent-solid);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.up-submit {
+  width: 100%; padding: 13px 0; margin-top: 4px;
+  font-size: 14.5px;
+}
+.up-note {
+  font-size: 12px; color: var(--text-2); line-height: 1.75;
+  margin-top: 14px;
+}
+#up-error:empty { display: none; }
+/* 已登录 */
+.up-account-btns { display: flex; gap: 10px; margin-top: 14px; }
+.up-account-btns .ghost-btn { flex: 1; padding: 10px 0; text-align: center; }
+/* 底部跨端入口 */
+.up-cross {
+  margin-top: auto;
+  padding: 13px 0; border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--accent-text);
+  font-size: 14px; font-weight: 650; letter-spacing: .3px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: filter .2s, transform .15s;
+}
+.up-cross:hover { filter: brightness(1.1); }
+.up-cross:active { transform: scale(.97); }
+.up-cross svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; }
+/* 账号栏遮罩 */
+.user-mask {
+  position: absolute; inset: 0; z-index: 65;
+  background: var(--mask);
+  opacity: 0; pointer-events: none; transition: opacity .22s;
+}
+.user-mask.show { opacity: 1; pointer-events: auto; }
+
+/* ============================================================
+   下载 App 弹窗（网页端）
+   ============================================================ */
+.getapp-modal { width: 340px; text-align: center; }
+.getapp-logo {
+  width: 76px; height: 76px; margin: 4px auto 16px;
+  border-radius: 19px; object-fit: cover;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+.getapp-desc { font-size: 13px; color: var(--text-2); line-height: 1.9; margin-bottom: 20px; }
+.getapp-btn {
+  display: block; width: 100%; padding: 13px 0;
+  font-size: 14.5px; text-align: center;
+}

@@ -33,7 +33,8 @@
   }
   function save() {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
-    scheduleCloudPush(); // 登录云账号后：本地每次保存自动安排上传（函数声明，下方云模块定义）
+    scheduleCloudPush(); // 登录 GitHub 云账号后：本地每次保存自动安排上传（函数声明，下方云模块定义）
+    scheduleSupaPush();  // 登录 Supabase 账号后：同理自动安排上传（函数声明，下方模块定义）
   }
 
   const defaultSettings = () => ({
@@ -1519,10 +1520,11 @@
   }
 
   /* 云端版本与本机不一致时的二选一弹窗，返回 'cloud'（恢复云端）或 'local'（本机覆盖） */
-  function cloudPickPromise() {
+  function cloudPickPromise(label) {
     return new Promise(resolve => {
+      const who = label || 'GitHub 云端';
       $('#cloudpick-text').textContent =
-        'GitHub 云端已有一份数据。恢复云端数据会覆盖本机现有内容；保留本机内容则会覆盖云端版本。';
+        who + '已有一份数据。恢复云端数据会覆盖本机现有内容；保留本机内容则会覆盖云端版本。';
       openModal('#modal-cloudpick');
       $('#cloudpick-cloud').onclick = () => { closeModals(); resolve('cloud'); };
       $('#cloudpick-local').onclick = () => { closeModals(); resolve('local'); };
@@ -1820,6 +1822,251 @@
   });
   $('#cloud-sync-now').addEventListener('click', () => { closeModals(); syncNow(); });
 
+  /* ============ 云同步（Supabase · 邮箱账号 · 整库 jsonb 同步） ============
+     与 GitHub 通道并存、互不影响：登录 Supabase 账号后，整库 db 以 jsonb 存入
+     表 sync_data（每个用户一行），保存后自动上传、换设备登录自动恢复。
+     SDK 经 CDN 加载；离线/加载失败时本通道静默停用，不影响其他功能。 */
+  const SUPA_URL = 'https://fdmahwltwoypecyjpmfb.supabase.co';
+  const SUPA_ANON = 'sb_publishable_dAFSkJ5BungbrDlG7BqxrA_YqZtPIDq';
+  const SUPA_TABLE = 'sync_data';
+  let supa = null;            // Supabase 客户端
+  let supaUser = null;
+  let supaSyncing = false;
+  let supaDirty = false;
+  let supaPushTimer = null;
+
+  function supaEnabled() { return !!(window.supabase && SUPA_URL); }
+  function initSupa() {
+    if (!supaEnabled()) return;
+    supa = window.supabase.createClient(SUPA_URL, SUPA_ANON, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    });
+    supa.auth.onAuthStateChange((event, session) => {
+      supaUser = session ? session.user : null;
+      renderUserPanel();
+    });
+  }
+
+  /* ---- 表读写 ---- */
+  async function supaGetRow() {
+    const { data, error } = await supa.from(SUPA_TABLE).select('payload').maybeSingle();
+    if (error) throw { error: error.message };
+    return data ? data.payload : null; // jsonb，已是对象
+  }
+  async function supaPutRow(payload) {
+    const { error } = await supa.from(SUPA_TABLE).upsert(
+      { user_id: supaUser.id, payload, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+    if (error) throw { error: error.message };
+  }
+  function applySupaPayload(obj) {
+    db = obj;
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    applyTheme(); renderLibrary();
+  }
+  function supaErrText(e) {
+    const m = e.error || '';
+    if (/JWT|expired/i.test(m)) return '登录已过期，请重新登录';
+    return m || '同步失败，请稍后重试';
+  }
+
+  /* ---- 本地保存后自动安排上传（与 GitHub 通道同样的 1.5s 合并节奏） ---- */
+  function scheduleSupaPush() {
+    if (!supaUser) return;
+    supaDirty = true;
+    clearTimeout(supaPushTimer);
+    supaPushTimer = setTimeout(() => { supaPush(true); }, 1500);
+  }
+
+  async function supaPush(auto) {
+    if (!supaUser) return;
+    if (supaSyncing) { supaDirty = true; return; }
+    supaSyncing = true; renderUserPanel();
+    try {
+      const localStr = JSON.stringify(db);
+      const remoteObj = await supaGetRow();
+      const remoteStr = remoteObj ? JSON.stringify(remoteObj) : null;
+      if (remoteStr !== null && remoteStr !== localStr) {
+        const choice = await cloudPickPromise('Supabase 云端');
+        if (choice === 'cloud') {
+          applySupaPayload(remoteObj);
+          supaDirty = false;
+          toast('已恢复云端数据');
+          return;
+        }
+        // 选择本机覆盖：继续执行 upsert
+      }
+      await supaPutRow(db);
+      supaDirty = false;
+      if (!auto) toast('已同步到云端');
+    } catch (e) {
+      supaDirty = true; // 失败保留改动，下次保存/手动同步重试
+      if (!auto) toast(supaErrText(e));
+      if (/JWT|expired/i.test(e.error || '')) { supaUser = null; supa.auth.signOut(); }
+    } finally {
+      supaSyncing = false; renderUserPanel();
+    }
+  }
+
+  /* ---- 登录/注册成功后的首同步（四态：无远端 / 相同 / 本机空 / 冲突） ---- */
+  async function supaFirstSync() {
+    const localStr = JSON.stringify(db);
+    const localEmpty = db.docs.length === 0 && db.folders.length === 0;
+    const remoteObj = await supaGetRow();
+    if (!remoteObj) {
+      await supaPutRow(db);
+      toast('登录成功，本机数据已上传云端');
+    } else if (JSON.stringify(remoteObj) === localStr) {
+      toast('登录成功，数据已是同步状态');
+    } else if (localEmpty) {
+      applySupaPayload(remoteObj);
+      toast('登录成功，已恢复云端数据');
+    } else {
+      const choice = await cloudPickPromise('Supabase 云端');
+      if (choice === 'cloud') {
+        applySupaPayload(remoteObj);
+        toast('已恢复云端数据');
+      } else {
+        await supaPutRow(db);
+        toast('本机数据已上传');
+      }
+    }
+  }
+
+  /* ---- 启动：恢复会话并检查云端新版本 ---- */
+  async function supaBoot() {
+    if (!supaEnabled()) return;
+    initSupa();
+    const { data } = await supa.auth.getSession();
+    supaUser = data.session ? data.session.user : null;
+    renderUserPanel();
+    if (!supaUser) return;
+    try {
+      const remoteObj = await supaGetRow();
+      if (!remoteObj) { await supaPutRow(db); return; }
+      if (JSON.stringify(remoteObj) !== JSON.stringify(db)) {
+        const choice = await cloudPickPromise('Supabase 云端');
+        if (choice === 'cloud') {
+          applySupaPayload(remoteObj);
+          toast('已恢复云端数据');
+        } else {
+          await supaPush(false);
+        }
+      }
+    } catch (e) {
+      if (/JWT|expired/i.test(e.error || '')) { supaUser = null; supa.auth.signOut(); }
+      // 网络错误保持静默，下次手动同步即可
+    }
+    renderUserPanel();
+  }
+
+  /* ---- 左侧账号栏 UI ---- */
+  function renderUserPanel() {
+    if (!$('#user-panel')) return;
+    if (supaUser) {
+      $('#up-auth').classList.add('hidden');
+      $('#up-account').classList.remove('hidden');
+      const email = supaUser.email || '';
+      $('#up-email-text').textContent = email;
+      $('#up-avatar').textContent = (email.slice(0, 1) || '?').toUpperCase();
+      $('#up-status').textContent = supaSyncing ? '正在同步…'
+        : (supaDirty ? '有改动待同步' : '已连接 · 所有改动已同步');
+    } else {
+      $('#up-auth').classList.remove('hidden');
+      $('#up-account').classList.add('hidden');
+    }
+  }
+  function openUserPanel() {
+    renderUserPanel();
+    $('#user-panel').classList.add('open');
+    $('#user-mask').classList.add('show');
+  }
+  function closeUserPanel() {
+    $('#user-panel').classList.remove('open');
+    $('#user-mask').classList.remove('show');
+  }
+
+  $('#lib-logo').addEventListener('click', openUserPanel);
+  $('#user-mask').addEventListener('click', closeUserPanel);
+  $('#up-sync').addEventListener('click', () => supaPush(false));
+  $('#up-logout').addEventListener('click', async () => {
+    supaDirty = false;
+    if (supa) await supa.auth.signOut();
+    supaUser = null;
+    renderUserPanel();
+    toast('已退出登录，本机数据不受影响');
+  });
+  $('#getapp-cancel').addEventListener('click', closeModals);
+
+  /* 登录/注册 标签切换 */
+  let upMode = 'login';
+  document.querySelectorAll('.up-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      upMode = tab.dataset.up;
+      document.querySelectorAll('.up-tab').forEach(t => t.classList.toggle('active', t === tab));
+      $('#up-password2').classList.toggle('hidden', upMode === 'login');
+      $('#up-submit').textContent = upMode === 'login' ? '登录' : '注册并同步';
+      $('#up-error').textContent = '';
+    });
+  });
+
+  /* 登录/注册 提交 */
+  $('#up-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const email = $('#up-email').value.trim();
+    const pwd = $('#up-password').value;
+    const err = $('#up-error');
+    err.textContent = '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = '请输入正确的邮箱地址'; return; }
+    if (pwd.length < 6) { err.textContent = '密码至少 6 位'; return; }
+    const btn = $('#up-submit');
+    btn.disabled = true;
+    try {
+      if (!supa) throw { error: '云端模块加载失败，请检查网络后刷新页面' };
+      if (upMode === 'signup') {
+        if ($('#up-password2').value !== pwd) throw { error: '两次输入的密码不一致' };
+        const { data, error } = await supa.auth.signUp({ email, password: pwd });
+        if (error) throw { error: error.message };
+        if (data.session) {
+          await supaFirstSync();
+          closeUserPanel();
+        } else {
+          // 项目开启了邮箱验证：无会话返回
+          err.textContent = '注册成功，请查收邮件并点击验证链接后再登录';
+        }
+      } else {
+        const { error } = await supa.auth.signInWithPassword({ email, password: pwd });
+        if (error) throw { error: error.message };
+        await supaFirstSync();
+        closeUserPanel();
+      }
+    } catch (ex) {
+      err.textContent = ex.error || '操作失败，请重试';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  /* 底部跨端入口：App → 外部浏览器打开网页版；网页 → 下载 App 弹窗 */
+  const WEB_URL = 'https://tatoo79.github.io/WeTalk/';
+  if (IS_APP) {
+    $('#up-cross').innerHTML =
+      '<svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>访问网页版';
+    $('#up-cross').addEventListener('click', () => {
+      closeUserPanel();
+      if (window.WTNative && window.WTNative.openExternal) window.WTNative.openExternal(WEB_URL);
+      else window.open(WEB_URL, '_blank');
+    });
+  } else {
+    $('#up-cross').innerHTML =
+      '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>下载应用';
+    $('#up-cross').addEventListener('click', () => {
+      closeUserPanel();
+      openModal('#modal-getapp');
+    });
+  }
+
   /* ============ 启动 ============ */
   load();
   seedGuide();
@@ -1827,6 +2074,7 @@
   refreshSortBtn();
   renderLibrary();
   cloudBoot();
+  supaBoot();
 
   /* 异常退出（关页/刷新）前兜底保存草稿与自动标题 */
   window.addEventListener('beforeunload', () => {

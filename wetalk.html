@@ -12,7 +12,7 @@
 <div id="view-library" class="view">
   <header class="lib-header">
     <div class="lib-title">
-      <h1>WeTalk</h1>
+      <h1 id="lib-logo" title="账号 / 同步">WeTalk</h1>
       <button class="icon-btn" id="btn-cloud" title="云同步">
         <svg viewBox="0 0 24 24"><path d="M17.5 19H7a4 4 0 0 1-.8-7.9A6 6 0 0 1 17.8 9.5 4.5 4.5 0 0 1 17.5 19z"/></svg>
       </button>
@@ -33,6 +33,46 @@
   </header>
 
   <div class="lib-body">
+    <!-- 左侧账号栏（点标题 WeTalk 展开） -->
+    <aside class="user-panel" id="user-panel">
+      <div class="up-head">账号</div>
+
+      <!-- 未登录：登录 / 注册 -->
+      <div id="up-auth">
+        <div class="up-tabs">
+          <button type="button" class="up-tab active" data-up="login">登录</button>
+          <button type="button" class="up-tab" data-up="signup">注册</button>
+        </div>
+        <form id="up-form" autocomplete="on">
+          <input type="email" id="up-email" placeholder="邮箱地址" autocomplete="email" spellcheck="false">
+          <input type="password" id="up-password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+          <input type="password" id="up-password2" class="hidden" placeholder="再次输入密码" autocomplete="new-password">
+          <div class="prompt-error" id="up-error"></div>
+          <button type="submit" class="primary-btn up-submit" id="up-submit">登录</button>
+        </form>
+        <p class="up-note">注册一个免费账号，数据保存在云端；同一账号在 App / 网页登录即可同步全部记录。</p>
+      </div>
+
+      <!-- 已登录：账号信息 -->
+      <div id="up-account" class="hidden">
+        <div class="cloud-user">
+          <span class="cloud-avatar" id="up-avatar"></span>
+          <div class="cloud-meta">
+            <div class="cloud-name" id="up-email-text"></div>
+            <div class="cloud-status" id="up-status">已连接</div>
+          </div>
+        </div>
+        <div class="up-account-btns">
+          <button class="ghost-btn" id="up-sync">立即同步</button>
+          <button class="ghost-btn" id="up-logout">退出登录</button>
+        </div>
+      </div>
+
+      <!-- 底部跨端入口（文案由环境决定） -->
+      <button class="up-cross" id="up-cross"></button>
+    </aside>
+    <div class="user-mask" id="user-mask"></div>
+
     <!-- 左侧快捷导航（文件管理器式） -->
     <aside class="side-nav" id="side-nav">
       <div class="side-nav-head">快速访问</div>
@@ -292,8 +332,19 @@
   </div>
 </div>
 
+<!-- 下载 App 弹窗（网页端点「下载应用」） -->
+<div class="modal getapp-modal hidden" id="modal-getapp">
+  <h3>下载 WeTalk App</h3>
+  <img class="getapp-logo" src="images/wetalk-logo.png" alt="WeTalk">
+  <p class="getapp-desc">左右分栏快速记录对话<br>与网页版数据互通</p>
+  <a class="primary-btn getapp-btn" href="apk/WeTalk.apk" download>下载 Android 安装包</a>
+  <p class="cloud-hint">如系统提示风险，请选择「继续安装」或「允许此来源」。本应用不申请通讯录、定位等隐私权限。</p>
+  <div class="modal-center"><button class="ghost-btn" id="getapp-cancel">关闭</button></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/export.js"></script>
 <script src="js/app.js"></script>
 </body>
