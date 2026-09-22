@@ -2373,7 +2373,12 @@
     try { agreed = localStorage.getItem(AGREE_KEY) === '1'; } catch (e) {}
     $('#auth-agree').checked = agreed;
     $('#auth-agree').addEventListener('change', () => {
-      try { localStorage.setItem(AGREE_KEY, $('#auth-agree').checked ? '1' : '0'); } catch (e) {}
+      const agreed = $('#auth-agree').checked;
+      try { localStorage.setItem(AGREE_KEY, agreed ? '1' : '0'); } catch (e) {}
+      // App 端：勾选即视为同意隐私政策，同步给原生（广告 SDK 仅在同意后初始化）
+      if (IS_APP) {
+        try { window.WTNative && WTNative.setPrivacyAgreed && WTNative.setPrivacyAgreed(agreed); } catch (e) {}
+      }
       refreshAuthSubmit();
     });
     $('#auth-policy').addEventListener('click', e => {
@@ -2512,6 +2517,10 @@
     const expiresMs = isVip && vipExpiresAt ? vipExpiresAt.getTime() : 0;
     if (IS_APP) {
       try { window.WTNative && WTNative.setVipState && WTNative.setVipState(!!isVip, expiresMs); } catch (e) {}
+      // 老用户/已勾选用户启动时补报隐私同意状态，原生据此放行广告 SDK
+      let agreed = false;
+      try { agreed = localStorage.getItem(AGREE_KEY) === '1'; } catch (e) {}
+      try { window.WTNative && WTNative.setPrivacyAgreed && WTNative.setPrivacyAgreed(agreed); } catch (e) {}
       return;
     }
     const slot = $('#uniad-profile');
