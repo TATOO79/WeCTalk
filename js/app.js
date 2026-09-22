@@ -1456,16 +1456,22 @@
     });
   }
 
-  /* ---------- 全屏捕获层：整个屏幕为识别区，仅保存/退出可离开 ---------- */
+  /* ---------- 全屏捕获层：键盘按键 + 键盘外区域单击，仅保存/退出可离开 ---------- */
   let capCtx = null;   // {fid, slot, buffer:[]}
+  const capInput = $('#cap-input');
   function openCapture(fid, slot) {
     capCtx = { fid, slot, buffer: [] };
     const fn = KEY_FUNCS.find(f => f.id === fid);
     $('#cap-title').textContent = '设置 · ' + (fn ? fn.name : '');
     renderCapDisplay();
     $('#modal-capture').classList.remove('hidden');
+    // 手机端自动弹出软键盘：此处由点击操作直接触发，另加延时兜底
+    capInput.value = '';
+    capInput.focus();
+    setTimeout(() => { if (capCtx && document.activeElement !== capInput) capInput.focus(); }, 150);
   }
   function closeCapture() {
+    capInput.blur();   // 收起软键盘
     $('#modal-capture').classList.add('hidden');
     capCtx = null;
   }
@@ -1496,6 +1502,7 @@
     if (!capCtx || capCtx.buffer.length >= 2) return;  // 最多两次操作
     capCtx.buffer.push(unit);
     renderCapDisplay();
+    if (capCtx.buffer.length >= 2) capInput.blur();    // 已录满：收起键盘，方便点保存
   }
   function capKeyDown(e) {
     if (!capCtx) return;
@@ -1504,15 +1511,22 @@
     if (e.repeat) return;
     // 单按修饰键不算一次操作
     if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+    // 中文输入法的组字事件（229 / Process）不记录，避免录进垃圾键
+    if (e.keyCode === 229 || e.key === 'Process') return;
     captureRecord(normKeyEvent(e));
   }
   function capPointerDown(e) {
     if (!capCtx) return;
     // 顶部保存/退出栏不参与识别
     if (e.target.closest('.cap-top')) return;
-    e.preventDefault();
+    // 仅识别键盘外的可见区域：软键盘覆盖范围内的点击不记为单击
+    const vv = window.visualViewport;
+    if (vv && e.clientY > vv.offsetTop + vv.height) return;
+    e.preventDefault();   // 阻止点击把焦点从隐形输入框移走（键盘保持弹出）
     captureRecord({ mods: [], key: 'ScreenTap' });
   }
+  /* 输入法可能直接写入字符，随时清空，保证输入框只是键盘入口 */
+  capInput.addEventListener('input', () => { capInput.value = ''; });
   document.addEventListener('keydown', capKeyDown, true);
   $('#modal-capture').addEventListener('pointerdown', capPointerDown, true);
   $('#cap-save').addEventListener('click', e => {
@@ -2414,6 +2428,7 @@
   function renderVipState() {
     const el = $('#up-vip-state');
     if (!el) return;
+    el.classList.remove('clickable', 'free');
     if (isVip && vipExpiresAt) {
       el.textContent = `${remainText(vipExpiresAt)} · 有效期至 ${fmtExpire(vipExpiresAt)}`;
       el.classList.remove('clickable', 'free');

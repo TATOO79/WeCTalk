@@ -59,7 +59,7 @@
           <button class="ghost-btn" id="up-logout">退出登录</button>
         </div>
         <button class="ghost-btn up-full-btn" id="up-vip">我的会员</button>
-        <div class="up-vip-state" id="up-vip-state"></div>
+        <div class="up-vip-state free clickable" id="up-vip-state">目前您未开通会员，点击开通</div>
         <button class="ghost-btn up-full-btn" id="up-keymap">按键自定义<span class="vip-badge vip-inside" title="会员功能">VIP</span></button>
       </div>
 
@@ -360,10 +360,13 @@
     <button class="cap-exit" id="cap-exit">退出</button>
     <span class="cap-title" id="cap-title">设置方案</span>
     <button class="cap-save" id="cap-save">保存</button>
+    <input class="cap-input" id="cap-input" type="text" inputmode="text"
+      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+      aria-label="按键捕获输入框">
   </div>
   <div class="cap-body" id="cap-body">
     <div class="cap-display" id="cap-display"><span class="cap-empty">等待你的操作…</span></div>
-    <div class="cap-hint">按下按键组合（如 Ctrl + &larr;），或单击 / 双击屏幕<br>识别区为整个屏幕，仅顶部「保存 / 退出」可以退出</div>
+    <div class="cap-hint">手机将自动弹出键盘：按下键盘按键即可定义；<br>也可单击键盘外的屏幕区域定义为单击，仅顶部「保存 / 退出」可以退出</div>
   </div>
 </div>
 
