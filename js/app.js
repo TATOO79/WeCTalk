@@ -716,12 +716,15 @@
     area.classList.toggle('has-lines', editing.lines.length > 0);
     area.querySelectorAll('.chat-line, .chat-empty, .insert-slot').forEach(n => n.remove());
     if (!editing.lines.length) {
-      const tip = document.createElement('div');
-      tip.className = 'chat-empty';
-      tip.textContent = IS_APP
-        ? '在下方输入框开始记录对话\n· 点左圈发到左栏，点右圈发到右栏\n· 回车在框内换行'
-        : '在下方输入框开始记录对话\n· 点圆圈或 Shift+←→ 选择角色，回车发送\n· Ctrl+回车框内换行 · ←/→+回车直发该侧但不切换角色';
-      area.appendChild(tip);
+      // 用户已保存按键自定义：不再显示默认按键用法的引导
+      if (!hasCustomKeymap()) {
+        const tip = document.createElement('div');
+        tip.className = 'chat-empty';
+        tip.textContent = IS_APP
+          ? '在下方输入框开始记录对话\n· 点左圈发到左栏，点右圈发到右栏\n· 回车在框内换行'
+          : '在下方输入框开始记录对话\n· 点圆圈或 Shift+←→ 选择角色，回车发送\n· Ctrl+回车框内换行 · ←/→+回车直发该侧但不切换角色';
+        area.appendChild(tip);
+      }
     } else {
       [...editing.lines].sort((a, b) => a.row - b.row)
         .forEach(line => area.appendChild(buildBubble(line)));
@@ -826,6 +829,23 @@
 
   /* ---------- 序列识别器：多键方案按顺序匹配（等价原「按住方向键+回车」） ---------- */
   const inputBox = $('#input-box');
+  /* 输入引导文案的平台默认值（隐藏后需要原样恢复，所以先记下来） */
+  const INPUT_PH_DEFAULT = IS_APP
+    ? '点击左右两边圆圈发送'
+    : (inputBox.getAttribute('data-ph') || '');
+  /* 任一功能存在自定义方案 = 用户已成功保存过按键自定义 */
+  function hasCustomKeymap() {
+    return KEY_FUNCS.some(f => funcIsCustom(f.id));
+  }
+  /* 同步输入引导显隐：气泡区空态说明 + 输入框占位说明。
+     已自定义按键后不再提示默认按键用法；自定义全部删除并保存后自动恢复 */
+  function syncKeyHints() {
+    const custom = hasCustomKeymap();
+    inputBox.setAttribute('data-ph', custom ? '' : INPUT_PH_DEFAULT);
+    const area = $('#chat-area');
+    if (custom) area.querySelector('.chat-empty')?.remove();
+    else if (!$('#view-editor').classList.contains('hidden')) renderChat();
+  }
   let keyPending = null;   // {fid, scheme, step, timer}
   function clearKeyPending() {
     if (keyPending) { clearTimeout(keyPending.timer); keyPending = null; }
@@ -1126,8 +1146,7 @@
   }
 
   if (IS_APP) {
-    const hint = '点击左右两边圆圈发送';
-    $('#input-box').setAttribute('data-ph', hint);
+    syncKeyHints();
     applyChatZoom(chatZoom);
 
     /* 统一返回（系统返回键 / 屏幕边缘左滑手势都会走到这里）：
@@ -1452,7 +1471,7 @@
           x.onclick = ev => {
             ev.stopPropagation();
             db.keymap[f.id].splice(i, 1);
-            save(); renderKeymap();
+            save(); renderKeymap(); syncKeyHints();
           };
           slot.appendChild(x);
         }
@@ -1575,6 +1594,7 @@
     closeCapture();
     save();
     if (!$('#modal-keymap').classList.contains('hidden')) renderKeymap();
+    syncKeyHints();
     toast('方案已保存并立即生效');
   });
   $('#cap-exit').addEventListener('click', e => {
@@ -2035,7 +2055,7 @@
     const s = JSON.stringify(db);
     localStorage.setItem(DB_KEY, s);
     setBaseline(s);
-    applyTheme(); renderLibrary();
+    applyTheme(); renderLibrary(); syncKeyHints();
   }
 
   function supaErrText(e) {
@@ -2844,6 +2864,7 @@
   applyTheme();
   refreshSortBtn();
   renderLibrary();
+  syncKeyHints();
   supaBoot();
 
   /* 异常退出（关页/刷新）前兜底保存草稿与自动标题 */
