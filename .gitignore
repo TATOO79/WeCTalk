@@ -1,3 +1,11 @@
 # 安卓工程与构建产物（网页仓库只发布静态站点）
 app/
 .vscode/
+
+# 内部材料 / 已暂停平台 / 服务端脚本，禁止推送到公开仓库
+软著登记材料/
+ios/
+supabase_membership.sql
+*.local
+.env
+.env.*

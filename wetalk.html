@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>WeTalk · 对话记录</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -58,6 +58,9 @@
           <button class="ghost-btn" id="up-sync">立即同步</button>
           <button class="ghost-btn" id="up-logout">退出登录</button>
         </div>
+        <button class="ghost-btn up-full-btn" id="up-vip">我的会员</button>
+        <div class="up-vip-state" id="up-vip-state"></div>
+        <button class="ghost-btn up-full-btn" id="up-keymap">按键自定义<span class="vip-badge vip-inside" title="会员功能">VIP</span></button>
       </div>
 
       <!-- 底部跨端入口（文案由环境决定） -->
@@ -169,7 +172,10 @@
 <div class="modal settings-modal hidden" id="modal-settings">
   <div class="settings-panels">
     <div class="settings-panel" data-side="L">
-      <h3>左栏人物</h3>
+      <div class="side-head">
+        <h3>左栏人物</h3>
+        <button class="mini-btn side-import" id="import-L" title="导入方案">导入</button>
+      </div>
       <div class="avatar-preview" id="avatar-L"></div>
       <div class="avatar-btns">
         <button class="mini-btn" data-act="gallery" data-side="L">图库</button>
@@ -184,7 +190,10 @@
       <input type="text" class="name-input" id="name-L" placeholder="名称" spellcheck="false">
     </div>
     <div class="settings-panel" data-side="R">
-      <h3>右栏人物</h3>
+      <div class="side-head">
+        <h3>右栏人物</h3>
+        <button class="mini-btn side-import" id="import-R" title="导入方案">导入</button>
+      </div>
       <div class="avatar-preview" id="avatar-R"></div>
       <div class="avatar-btns">
         <button class="mini-btn" data-act="gallery" data-side="R">图库</button>
@@ -207,8 +216,8 @@
   <h3>导出文档</h3>
   <div class="export-btns">
     <button class="export-btn" data-fmt="pdf"><span class="ext">PDF</span>打印为 PDF</button>
-    <button class="export-btn" data-fmt="word"><span class="ext">DOC</span>Word 文档</button>
-    <button class="export-btn" data-fmt="txt"><span class="ext">TXT</span>纯文本</button>
+    <button class="export-btn" data-fmt="word"><span class="ext">DOC</span>Word 文档<span class="vip-badge vip-inline" title="会员功能">VIP</span></button>
+    <button class="export-btn" data-fmt="img"><span class="ext">PNG</span>导出长图</button>
   </div>
 </div>
 
@@ -295,7 +304,20 @@
       </button>
     </div>
     <div class="prompt-error" id="auth-error"></div>
-    <button type="submit" class="primary-btn auth-submit" id="auth-submit">登录</button>
+    <div class="slider-captcha" id="slider-captcha">
+      <div class="sc-puzzle" id="sc-puzzle">
+        <canvas id="sc-bg" width="300" height="150"></canvas>
+        <canvas id="sc-piece"></canvas>
+      </div>
+      <div class="sc-track" id="sc-track">
+        <div class="sc-fill" id="sc-fill"></div>
+        <span class="sc-text" id="sc-text">按住滑块，拖动完成拼图</span>
+        <div class="sc-btn" id="sc-btn">
+          <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/><path d="M5 5l7 7-7 7"/></svg>
+        </div>
+      </div>
+    </div>
+    <button type="submit" class="primary-btn auth-submit" id="auth-submit" disabled>登录</button>
   </form>
 
   <p class="auth-note" id="auth-note">注册一个免费账号，数据保存在云端；<br>同一账号在 App / 网页登录即可同步全部记录。</p>
@@ -320,6 +342,83 @@
   <a class="primary-btn getapp-btn" href="apk/WeTalk.apk" download>下载 Android 安装包</a>
   <p class="cloud-hint">如系统提示风险，请选择「继续安装」或「允许此来源」。本应用不申请通讯录、定位等隐私权限。</p>
   <div class="modal-center"><button class="ghost-btn" id="getapp-cancel">关闭</button></div>
+</div>
+
+<!-- 按键自定义弹窗 -->
+<div class="modal keymap-modal hidden" id="modal-keymap">
+  <div class="km-head">
+    <h3>按键自定义</h3>
+    <button class="icon-x km-close" id="keymap-close" title="退出">&times;</button>
+  </div>
+  <div class="km-list" id="keymap-list"></div>
+  <div class="km-foot">方框即具体方案，每种功能最多保存两种；默认方案与原始逻辑完全一致，修改后立即生效。</div>
+</div>
+
+<!-- 全屏按键捕获层 -->
+<div class="capture-layer hidden" id="modal-capture">
+  <div class="cap-top">
+    <button class="cap-exit" id="cap-exit">退出</button>
+    <span class="cap-title" id="cap-title">设置方案</span>
+    <button class="cap-save" id="cap-save">保存</button>
+  </div>
+  <div class="cap-body" id="cap-body">
+    <div class="cap-display" id="cap-display"><span class="cap-empty">等待你的操作…</span></div>
+    <div class="cap-hint">按下按键组合（如 Ctrl + &larr;），或单击 / 双击屏幕<br>识别区为整个屏幕，仅顶部「保存 / 退出」可以退出</div>
+  </div>
+</div>
+
+<!-- 人物信息库（导入方案）弹窗 -->
+<div class="modal profiles-modal hidden" id="modal-profiles">
+  <div class="pf-head">
+    <h3>导入方案</h3>
+    <button class="pf-add" id="pf-add" title="新建人物信息">＋</button>
+    <button class="icon-x pf-x" id="pf-x" title="退出">&times;</button>
+  </div>
+  <div class="pf-list" id="pf-list"></div>
+</div>
+
+<!-- 单个人物信息编辑弹窗 -->
+<div class="modal person-modal hidden" id="modal-person">
+  <div class="pm-head">
+    <button class="icon-x pm-x" id="pm-x" title="退出">&times;</button>
+    <h3 id="pm-title">新建人物信息</h3>
+    <button class="pm-save" id="pm-save">保存</button>
+  </div>
+  <div class="pm-body">
+    <div class="avatar-preview avatar-preview-lg" id="avatar-P"></div>
+    <div class="avatar-btns">
+      <button class="mini-btn" data-pact="gallery">图库</button>
+      <button class="mini-btn" data-pact="color">纯色</button>
+    </div>
+    <input type="file" id="file-P" accept="image/*" hidden>
+    <div class="color-row hidden" id="color-row-P">
+      <input type="color" id="color-P" value="#4a7c8c">
+      <input type="text" class="hex-input" id="hex-P" placeholder="#4A7C8C" maxlength="7">
+      <button class="mini-btn" data-pact="color-ok">确定</button>
+    </div>
+    <input type="text" class="name-input" id="name-P" placeholder="名称" spellcheck="false">
+  </div>
+</div>
+
+<!-- 会员开通弹窗 -->
+<div class="modal vip-modal hidden" id="modal-vip">
+  <h3>WeTalk 会员</h3>
+  <div class="vip-features">
+    <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>导出 Word 文档</div>
+    <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>编辑按键自定义</div>
+    <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24"><path d="M20 6L9 17l-5-5"/></svg></span>人物信息库扩展至 10 条</div>
+  </div>
+  <div class="vip-plans">
+    <span class="vp-tag">一日体验</span>
+    <span class="vp-tag">月度</span>
+    <span class="vp-tag">季度</span>
+    <span class="vp-tag">年度</span>
+  </div>
+  <div class="vip-current" id="vip-current"></div>
+  <input type="text" class="name-input vip-code-input" id="vip-code" placeholder="请输入激活码" spellcheck="false" autocomplete="off">
+  <button class="primary-btn vip-buy" id="vip-buy">激活会员</button>
+  <p class="vip-note">输入激活码立即开通，档位由激活码决定；有效期在当前会员基础上顺延，到期自动恢复免费版。</p>
+  <div class="modal-center"><button class="ghost-btn" id="vip-cancel">稍后再说</button></div>
 </div>
 
 <div class="toast" id="toast"></div>

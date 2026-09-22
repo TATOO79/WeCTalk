@@ -30,6 +30,9 @@
       // 旧文档若已有标题，视为用户标题，保持现状不变
       if (typeof d.titleManual !== 'boolean') d.titleManual = !!(d.title && d.title.trim());
     });
+    // 迁移：人物信息库（上限 10）与按键方案
+    if (!Array.isArray(db.people)) db.people = [];
+    if (!db.keymap || typeof db.keymap !== 'object') db.keymap = {};
   }
   function save() {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
@@ -711,51 +714,148 @@
     area.scrollTop = area.scrollHeight;
   }
 
-  /* 输入：
-     · App：回车只在框内换行，发送靠点左右圆圈（零字符不发送，输入空格可发空格）
-     · 网页：回车发送到当前选中角色（默认右，黑圈常驻标识）；
-       Ctrl+回车 = 框内换行；
-       Shift+←/→ = 切换选中角色（延续，直到再次切换）；
-       按住 ←/→ 再按回车 = 本次直发该侧，但不改变选中角色。 */
-  const inputBox = $('#input-box');
+  /* ============================================================
+     按键「可替换符号」体系
+     · 5 个功能各自可挂 1~2 个方案；默认方案与原始逻辑完全一致
+     · 方案 = 1~2 次按键序列（每次 = 修饰键集合 + 主键）
+     · 用户自定义保存后一键替换到对应符号；未自定义时恒为默认值
+     输入行为：
+     · App：回车只在框内换行，发送靠点左右圆圈（键盘自定义主要服务网页端）
+     · 网页：见默认方案；Ctrl+回车 = 框内换行（保留硬编码）
+     ============================================================ */
+  const KEY_FUNCS = [
+    { id: 'switchL',     name: '切换为左角色' },
+    { id: 'switchR',     name: '切换为右角色' },
+    { id: 'sendL',       name: '发送为左角色' },
+    { id: 'sendR',       name: '发送为右角色' },
+    { id: 'sendCurrent', name: '发送当前内容' }
+  ];
+  const MOD_ORDER = ['ctrl', 'alt', 'shift', 'meta'];
+  const Kp = (mods, key) => ({ mods: mods || [], key });
+  const DEFAULT_KEYMAP = {
+    switchL:     [{ keys: [Kp(['shift'], 'ArrowLeft')] }],
+    switchR:     [{ keys: [Kp(['shift'], 'ArrowRight')] }],
+    sendL:       [{ keys: [Kp([], 'ArrowLeft'), Kp([], 'Enter')] }],
+    sendR:       [{ keys: [Kp([], 'ArrowRight'), Kp([], 'Enter')] }],
+    sendCurrent: [{ keys: [Kp([], 'Enter')] }]
+  };
 
-  /* 跟踪左右方向键是否处于按住状态（仅电脑端，用于「方向键+回车」直发） */
-  const heldArrow = { L: false, R: false };
-  function heldDir() {
-    if (heldArrow.L && !heldArrow.R) return 'L';
-    if (heldArrow.R && !heldArrow.L) return 'R';
-    return null;
+  function normKeyEvent(e) {
+    const mods = [];
+    if (e.ctrlKey) mods.push('ctrl');
+    if (e.altKey) mods.push('alt');
+    if (e.shiftKey) mods.push('shift');
+    if (e.metaKey) mods.push('meta');
+    return { mods, key: e.key };
   }
-  if (!IS_APP) {
-    const trackArrow = (down, e) => {
-      if (e.key === 'ArrowLeft') heldArrow.L = down;
-      else if (e.key === 'ArrowRight') heldArrow.R = down;
-    };
-    document.addEventListener('keydown', e => trackArrow(true, e));
-    document.addEventListener('keyup', e => trackArrow(false, e));
-    window.addEventListener('blur', () => { heldArrow.L = heldArrow.R = false; });
+  function keyEqual(a, b) {
+    if (a.key !== b.key || a.mods.length !== b.mods.length) return false;
+    return MOD_ORDER.every(m => a.mods.includes(m) === b.mods.includes(m));
+  }
+  /* 方案归一化/校验（防止云端/本地脏数据） */
+  function normScheme(sc) {
+    if (!sc || !Array.isArray(sc.keys)) return null;
+    const keys = sc.keys.slice(0, 2).map(k => {
+      if (!k || typeof k.key !== 'string') return null;
+      const mods = (Array.isArray(k.mods) ? k.mods : []).filter(m => MOD_ORDER.includes(m));
+      return { mods: MOD_ORDER.filter(m => mods.includes(m)), key: k.key };
+    });
+    if (!keys.length || keys.some(k => !k)) return null;
+    return { keys };
+  }
+  /* 某功能的生效方案：有自定义用自定义（整体替换默认），否则用默认 */
+  function funcSchemes(fid) {
+    const saved = db.keymap[fid];
+    if (Array.isArray(saved)) {
+      const list = saved.slice(0, 2).map(normScheme).filter(Boolean);
+      if (list.length) return list;
+    }
+    return DEFAULT_KEYMAP[fid].map(normScheme);
+  }
+  function funcIsCustom(fid) {
+    const saved = db.keymap[fid];
+    return Array.isArray(saved)
+      && saved.slice(0, 2).map(normScheme).filter(Boolean).length > 0;
+  }
+
+  /* 友好显示名 */
+  const KEY_PRETTY = {
+    ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓',
+    ' ': 'Space', Enter: '回车', Escape: 'Esc', Tab: 'Tab',
+    Backspace: '⌫', Delete: 'Del', ScreenTap: '单击'
+  };
+  function keyPressLabel(k) {
+    const parts = k.mods.map(m => ({ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', meta: 'Win' }[m]));
+    parts.push(KEY_PRETTY[k.key] || (k.key.length === 1 ? k.key.toUpperCase() : k.key));
+    return parts.join('+');
+  }
+  function schemeLabel(sc) {
+    return sc.keys.map(keyPressLabel).join(' → ');
+  }
+
+  /* ---------- 序列识别器：多键方案按顺序匹配（等价原「按住方向键+回车」） ---------- */
+  const inputBox = $('#input-box');
+  let keyPending = null;   // {fid, scheme, step, timer}
+  function clearKeyPending() {
+    if (keyPending) { clearTimeout(keyPending.timer); keyPending = null; }
+  }
+  function matchKey(k) {
+    if (keyPending) {
+      const p = keyPending;
+      if (keyEqual(k, p.scheme.keys[p.step])) {
+        clearTimeout(p.timer);
+        if (p.step + 1 >= p.scheme.keys.length) {
+          const fid = p.fid;
+          keyPending = null;
+          return { fire: fid };
+        }
+        p.step += 1;
+        p.timer = setTimeout(clearKeyPending, 1200);
+        return { pending: true };
+      }
+      clearKeyPending();   // 不匹配：作废前缀，继续走全新匹配
+    }
+    let fireNow = null, prefix = null;
+    KEY_FUNCS.forEach(f => {
+      funcSchemes(f.id).forEach(scheme => {
+        if (keyEqual(k, scheme.keys[0])) {
+          if (scheme.keys.length === 1) { if (!fireNow) fireNow = f.id; }
+          else if (!prefix) prefix = { fid: f.id, scheme, step: 1 };
+        }
+      });
+    });
+    if (fireNow) return { fire: fireNow };
+    if (prefix) {
+      keyPending = { fid: prefix.fid, scheme: prefix.scheme, step: 1,
+        timer: setTimeout(clearKeyPending, 1200) };
+      return { pending: true };
+    }
+    return {};
+  }
+  function runKeyAction(fid) {
+    if (fid === 'switchL') setWebSide('L');
+    else if (fid === 'switchR') setWebSide('R');
+    else if (fid === 'sendL') commitInput(true, 'L');
+    else if (fid === 'sendR') commitInput(true, 'R');
+    else if (fid === 'sendCurrent') commitInput(true, webSide);
   }
 
   inputBox.addEventListener('keydown', e => {
     if (IS_APP) return;   // App 不拦截任何按键，回车走 contenteditable 默认换行
-    /* Shift+←/→：切换常驻角色 */
-    if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {  // 框内换行（保留硬编码）
       e.preventDefault();
-      setWebSide(e.key === 'ArrowLeft' ? 'L' : 'R');
+      document.execCommand('insertLineBreak');
       return;
     }
-    if (e.key === 'Enter') {
+    if (e.repeat) return;
+    const r = matchKey(normKeyEvent(e));
+    if (r.fire) {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {            // Ctrl+回车：框内换行
-        document.execCommand('insertLineBreak');
-        return;
-      }
-      const dir = heldDir();                    // 按住方向键+回车：直发该侧
-      commitInput(true, dir || webSide);  // 不切换常驻角色；零字符不发送
+      runKeyAction(r.fire);
     }
   });
-  // 失焦时把草稿存为一条（不重绘，防止破坏选区）
-  inputBox.addEventListener('blur', () => commitInput(false));
+  // 失焦时作废序列前缀，并把草稿存为一条（不重绘，防止破坏选区）
+  inputBox.addEventListener('blur', () => { clearKeyPending(); commitInput(false); });
 
   /* 左右圆圈：
      · App：点哪个圈就把当前输入发送到哪侧（什么都没输入不发送，输入空格可发送空格），
@@ -1285,20 +1385,361 @@
     toast('人物设置已生效');
   };
 
+  /* ============================================================
+     按键自定义弹窗 + 全屏捕获层
+     ============================================================ */
+
+  /* 自定义弹窗列表渲染：每功能行 = 名称 + 1~2 方框 + 编辑钮 */
+  function renderKeymap() {
+    const list = $('#keymap-list');
+    list.innerHTML = '';
+    KEY_FUNCS.forEach(f => {
+      const custom = funcIsCustom(f.id);
+      const schemes = funcSchemes(f.id);
+
+      const row = document.createElement('div');
+      row.className = 'km-row';
+
+      const name = document.createElement('div');
+      name.className = 'km-name';
+      name.textContent = f.name;
+      row.appendChild(name);
+
+      const slots = document.createElement('div');
+      slots.className = 'km-slots';
+      schemes.forEach((sc, i) => {
+        const slot = document.createElement('div');
+        slot.className = 'km-slot';
+        slot.textContent = schemeLabel(sc);
+        slot.title = '点击重新识别此方案';
+        slot.onclick = () => openCapture(f.id, i);
+        if (custom) {
+          const x = document.createElement('span');
+          x.className = 'km-clear';
+          x.textContent = '×';
+          x.title = '删除此方案';
+          x.onclick = ev => {
+            ev.stopPropagation();
+            db.keymap[f.id].splice(i, 1);
+            save(); renderKeymap();
+          };
+          slot.appendChild(x);
+        }
+        slots.appendChild(slot);
+      });
+      // 自定义且仅 1 个方案：虚线「＋方案」框（每种最多两种）
+      if (custom && schemes.length < 2) {
+        const add = document.createElement('div');
+        add.className = 'km-slot km-slot-empty';
+        add.textContent = '＋ 方案';
+        add.onclick = () => openCapture(f.id, schemes.length);
+        slots.appendChild(add);
+      }
+      row.appendChild(slots);
+
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'km-edit';
+      edit.title = '编辑方案';
+      edit.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+        + 'stroke-linecap="round" stroke-linejoin="round">'
+        + '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+      edit.onclick = () => {
+        // 有空格位填空格位，两格皆满则替换第一格
+        const n = funcIsCustom(f.id) ? funcSchemes(f.id).length : 0;
+        openCapture(f.id, n >= 2 ? 0 : n);
+      };
+      row.appendChild(edit);
+
+      list.appendChild(row);
+    });
+  }
+
+  /* ---------- 全屏捕获层：整个屏幕为识别区，仅保存/退出可离开 ---------- */
+  let capCtx = null;   // {fid, slot, buffer:[]}
+  function openCapture(fid, slot) {
+    capCtx = { fid, slot, buffer: [] };
+    const fn = KEY_FUNCS.find(f => f.id === fid);
+    $('#cap-title').textContent = '设置 · ' + (fn ? fn.name : '');
+    renderCapDisplay();
+    $('#modal-capture').classList.remove('hidden');
+  }
+  function closeCapture() {
+    $('#modal-capture').classList.add('hidden');
+    capCtx = null;
+  }
+  function renderCapDisplay() {
+    const d = $('#cap-display');
+    d.innerHTML = '';
+    if (!capCtx.buffer.length) {
+      const e0 = document.createElement('span');
+      e0.className = 'cap-empty';
+      e0.textContent = '等待你的操作…';
+      d.appendChild(e0);
+      return;
+    }
+    capCtx.buffer.forEach((unit, i) => {
+      if (i) {
+        const plus = document.createElement('span');
+        plus.className = 'cap-plus';
+        plus.textContent = '+';
+        d.appendChild(plus);
+      }
+      const k = document.createElement('span');
+      k.className = 'cap-kbd';
+      k.textContent = keyPressLabel(unit);
+      d.appendChild(k);
+    });
+  }
+  function captureRecord(unit) {
+    if (!capCtx || capCtx.buffer.length >= 2) return;  // 最多两次操作
+    capCtx.buffer.push(unit);
+    renderCapDisplay();
+  }
+  function capKeyDown(e) {
+    if (!capCtx) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat) return;
+    // 单按修饰键不算一次操作
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+    captureRecord(normKeyEvent(e));
+  }
+  function capPointerDown(e) {
+    if (!capCtx) return;
+    // 顶部保存/退出栏不参与识别
+    if (e.target.closest('.cap-top')) return;
+    e.preventDefault();
+    captureRecord({ mods: [], key: 'ScreenTap' });
+  }
+  document.addEventListener('keydown', capKeyDown, true);
+  $('#modal-capture').addEventListener('pointerdown', capPointerDown, true);
+  $('#cap-save').addEventListener('click', e => {
+    e.stopPropagation();
+    if (!capCtx) return;
+    if (!capCtx.buffer.length) { toast('请先进行按键或点击操作'); return; }
+    const { fid, slot, buffer } = capCtx;
+    const scheme = normScheme({
+      keys: buffer.map(u => ({ mods: u.mods, key: u.key }))
+    });
+    if (!scheme) { toast('识别内容无效，请重试'); return; }
+    if (!Array.isArray(db.keymap[fid])) db.keymap[fid] = [];
+    db.keymap[fid][slot] = scheme;
+    db.keymap[fid] = db.keymap[fid].slice(0, 2).filter(Boolean);
+    closeCapture();
+    save();
+    if (!$('#modal-keymap').classList.contains('hidden')) renderKeymap();
+    toast('方案已保存并立即生效');
+  });
+  $('#cap-exit').addEventListener('click', e => {
+    e.stopPropagation();
+    closeCapture();   // 不保存直接退出
+  });
+
+  /* 入口：账号面板「按键自定义」（会员功能，打开前先门控） */
+  $('#up-keymap').addEventListener('click', () => {
+    if (!requireVip()) return;
+    renderKeymap();
+    openModal('#modal-keymap');
+  });
+  $('#keymap-close').addEventListener('click', closeModals);
+
+  /* ============================================================
+     人物信息库：设置弹窗左右头像「导入方案」+ 人物库弹窗 + 单人编辑
+     ============================================================ */
+  const PEOPLE_MAX = 10;
+
+  /* 「导入」钮位于标题行右侧（静态结构 #import-L / #import-R） */
+  ['L', 'R'].forEach(side => {
+    $(`#import-${side}`).addEventListener('click', () => openProfiles(side));
+  });
+
+  /* ---------- 人物库弹窗：逐行预览（头像 + 名称） ---------- */
+  let profileTargetSide = 'L';
+  function openProfiles(side) {
+    profileTargetSide = side;
+    renderProfiles();
+    openModal('#modal-profiles');
+  }
+  function renderProfiles() {
+    const list = $('#pf-list');
+    list.innerHTML = '';
+    if (!db.people.length) {
+      const e0 = document.createElement('div');
+      e0.className = 'pf-empty';
+      e0.textContent = '暂无保存人物，点右上角 ＋ 新建';
+      list.appendChild(e0);
+      return;
+    }
+    db.people.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'pf-row';
+
+      const av = document.createElement('div');
+      av.className = 'pf-avatar';
+      if (p.avatar && p.avatar.startsWith('data:')) {
+        const im = document.createElement('img');
+        im.src = p.avatar;
+        av.appendChild(im);
+      } else {
+        av.style.background = p.avatar || '#9aa1b0';
+        av.textContent = (p.name || '?').slice(0, 1);
+      }
+      row.appendChild(av);
+
+      const nm = document.createElement('div');
+      nm.className = 'pf-name';
+      nm.textContent = p.name || '未命名';
+      row.appendChild(nm);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'pf-del';
+      del.textContent = '×';
+      del.title = '删除';
+      del.onclick = e => {
+        e.stopPropagation();
+        db.people = db.people.filter(x => x.id !== p.id);
+        save();
+        renderProfiles();
+      };
+      row.appendChild(del);
+
+      row.onclick = () => importPerson(p);
+      list.appendChild(row);
+    });
+  }
+  /* 点某行：导入到打开来源那一侧 */
+  function importPerson(p) {
+    const key = profileTargetSide === 'L' ? 'left' : 'right';
+    tmpSettings[key] = { name: p.name, avatar: p.avatar || '' };
+    closeModals();
+    renderSettings();
+    openModal('#modal-settings');
+    toast('已导入到' + (profileTargetSide === 'L' ? '左' : '右') + '侧');
+  }
+
+  /* ＋：第 4 条起需会员；总数上限 10 */
+  $('#pf-add').addEventListener('click', () => {
+    if (db.people.length >= PEOPLE_MAX) { toast('最多保存 10 个人物信息'); return; }
+    if (db.people.length >= 3 && !requireVip()) return;
+    openPersonModal(null);
+  });
+  $('#pf-x').addEventListener('click', closeModals);
+
+  /* ---------- 单个人物信息编辑弹窗（与人物设置栏同 UI，一次只设一人） ---------- */
+  let personTmp = null;
+  function openPersonModal(p) {
+    personTmp = p
+      ? JSON.parse(JSON.stringify(p))
+      : { id: uid(), name: '', avatar: '' };
+    $('#pm-title').textContent = p ? '编辑人物信息' : '新建人物信息';
+    $('#name-P').value = personTmp.name;
+    $('#color-row-P').classList.add('hidden');
+    paintPersonAvatar();
+    openModal('#modal-person');
+  }
+  function paintPersonAvatar() {
+    const el = $('#avatar-P');
+    el.innerHTML = '';
+    el.style.background = 'transparent';
+    const a = personTmp.avatar;
+    if (a && a.startsWith('data:')) {
+      const im = document.createElement('img');
+      im.src = a;
+      el.appendChild(im);
+    } else if (a) {
+      el.style.background = a;
+    } else {
+      el.textContent = '头像';
+    }
+  }
+  document.querySelectorAll('#modal-person .mini-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      const act = b.dataset.pact;
+      if (act === 'gallery') {
+        $('#file-P').value = '';
+        $('#file-P').click();
+      } else if (act === 'color') {
+        $('#color-row-P').classList.remove('hidden');
+      } else if (act === 'color-ok') {
+        const c = $('#color-P').value;
+        personTmp.avatar = c;
+        $('#hex-P').value = c.toUpperCase();
+        paintPersonAvatar();
+      }
+    });
+  });
+  $('#file-P').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        const size = 128;
+        c.width = size; c.height = size;
+        const ctx = c.getContext('2d');
+        const min = Math.min(img.width, img.height);
+        ctx.drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, size, size);
+        personTmp.avatar = c.toDataURL('image/jpeg', 0.85);
+        paintPersonAvatar();
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  const onPColor = e => {
+    personTmp.avatar = e.target.value;
+    $('#hex-P').value = e.target.value.toUpperCase();
+    paintPersonAvatar();
+  };
+  $('#color-P').addEventListener('input', onPColor);
+  $('#color-P').addEventListener('change', onPColor);
+  $('#hex-P').addEventListener('input', e => {
+    const v = e.target.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+      $('#color-P').value = v;
+      personTmp.avatar = v;
+      paintPersonAvatar();
+    }
+  });
+  $('#pm-save').addEventListener('click', () => {
+    personTmp.name = $('#name-P').value.trim();
+    if (!personTmp.name) { toast('请填写名称'); return; }
+    const i = db.people.findIndex(x => x.id === personTmp.id);
+    if (i >= 0) db.people[i] = personTmp;
+    else {
+      if (db.people.length >= PEOPLE_MAX) { toast('最多保存 10 个人物信息'); return; }
+      db.people.push(personTmp);
+    }
+    closeModals();
+    save();
+    renderProfiles();
+    openModal('#modal-profiles');
+    toast('人物信息已保存');
+  });
+  $('#pm-x').addEventListener('click', closeModals);
+
   /* ============ 导出 ============ */
   $('#btn-export').onclick = () => openModal('#modal-export');
   const FMT_META = {
-    txt:  { label: 'TXT', ext: 'txt', mime: 'text/plain' },
+    img:  { label: '长图', ext: 'png', mime: 'image/png' },
     word: { label: 'Word', ext: 'docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }
   };
   const sanitizeName = n => String(n).replace(/[\\/:*?"<>|\x00-\x1f]/g, '').trim() || '未命名对话';
   document.querySelectorAll('.export-btn').forEach(b => {
     b.onclick = () => {
+      const fmt = b.dataset.fmt;
+      // Word 为会员功能，进入前先门控
+      if (fmt === 'word' && !requireVip()) return;
       commitInput();
       const doc = JSON.parse(JSON.stringify(editing));
       doc.title = resolveTitle(doc);
-      const fmt = b.dataset.fmt;
-      if (!doc.lines.length && fmt !== 'txt') { toast('暂无内容可导出'); return; }
+      // 长图与原 TXT 同口径：允许空内容导出（仅标题+双方信息）
+      if (!doc.lines.length && fmt !== 'img') { toast('暂无内容可导出'); return; }
       if (fmt === 'pdf') {
         // App：保留导出选择框——系统打印框左滑返回时正好回到此框；浏览器沿用原流程
         if (IS_APP) WTExport.exportPDF(doc);
@@ -1306,12 +1747,17 @@
         return;
       }
 
-      // txt / word：App 内先确认文件名，再由系统文件选择器（SAF）指定保存位置；
+      // img / word：App 内先确认文件名，再由系统文件选择器（SAF）指定保存位置；
       // 浏览器环境沿用原下载流程
       if (!IS_APP) {
         closeModals();
-        if (fmt === 'txt') WTExport.exportTXT(doc);
-        else WTExport.exportWord(doc);
+        if (fmt === 'img') {
+          WTExport.buildImageBlob(doc)
+            .then(blob => WTExport.downloadBlob(blob, sanitizeName(doc.title) + '.png'))
+            .catch(() => toast('导出失败，请重试'));
+        } else {
+          WTExport.exportWord(doc);
+        }
         return;
       }
       const meta = FMT_META[fmt];
@@ -1325,8 +1771,8 @@
         if (!rawName) return toast('文件名不能为空');
         const name = /\.[a-z0-9]+$/i.test(rawName) ? rawName : rawName + '.' + meta.ext;
         closeModals();
-        const job = fmt === 'txt'
-          ? Promise.resolve(WTExport.buildTXTBlob(doc))
+        const job = fmt === 'img'
+          ? WTExport.buildImageBlob(doc)
           : WTExport.buildWordBlob(doc);
         job.then(blob => {
           const reader = new FileReader();
@@ -1348,7 +1794,7 @@
   $('#btn-theme-ed').onclick = toggleTheme;
 
   /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v6' : 'wetalk_guide_seeded_v5';
+  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v7' : 'wetalk_guide_seeded_v7';
   const GUIDE_TITLES = [
     '欢迎使用 WeTalk · 使用说明',
     '欢迎使用WeTalk·网页使用说明',
@@ -1368,36 +1814,78 @@
     const n1 = db.docs.length;
     db.docs = db.docs.filter(d => d.title !== guideTitle);
     if (db.docs.length !== n1) save();
-    const diagram =
-      '<svg viewBox="0 0 240 132" style="width:100%;max-width:252px;height:auto;margin:8px 0 2px;fill:none;stroke:currentColor;stroke-width:1.5;">'
-      + '<line x1="120" y1="6" x2="120" y2="126" style="stroke:currentColor;opacity:.25;stroke-dasharray:4 4;stroke-width:1.2"/>'
-      + '<rect x="144" y="12"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.5;stroke:none"/>'
-      + '<rect x="144" y="52"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.5;stroke:none"/>'
-      + '<rect x="14" y="92"  width="82" height="26" rx="10" style="fill:currentColor;opacity:.16;stroke:none"/>'
-      + '</svg>';
-    const switchTip = IS_APP
-      ? '<b>四、输入与切换（手机端）</b><br>· 输入框左右各有一个圆圈，<u>点左圈发送到左栏，点右圈发送到右栏</u>；最近一次发送的一侧圆圈会放大加框，该侧输入栏向中间铺开一层渐变作为选中标识；什么都没输入时点击不会发送任何内容，输入了空格则会照常发送空格。<br>· <u>回车</u>只在输入框内换行，不会发送。<br>案例：右侧输入「明天三点见面」点右圈 → 右栏出现气泡；再输入「好的」点左圈 → 内容落在左侧对应行。<br>· <u>双指张合</u>可放大 / 缩小对话区字号，只影响本机预览、不影响导出，字号会被记住。<br>注意：编辑页内系统返回手势不会离开页面（第一次会提示点左上角箭头）；在文件夹中返回上一级，在桌面连续两次返回退出 App。'
-      : '<b>四、输入与切换</b><br>· 输入框左右各有一个圆圈，<b>略大并带一圈外框</b>的圆圈是当前选中角色（默认右侧），该侧输入栏同时向中间铺开一层渐变，选中状态会一直保持到下次切换（日间墨灰、夜间鎏金）。<br>· <u>鼠标点圆圈</u>或 <u>Shift + ← / →</u>：切换选中角色。<br>· <u>回车</u>：发送到当前选中角色。<br>· <u>Ctrl + 回车</u>：在输入框内换行。<br>· 按住 <u>← 或 → 再按回车</u>：本次直接发送到对应侧，但不改变选中角色。<br>案例：选中右侧时输入「明天三点见面」回车 → 右栏出现气泡；按住 ← 再按回车可把内容直发左侧，松开后再回车仍发送到右侧。';
-    const saveTip = IS_APP
-      ? '<b>七、保存机制（手机端）</b><br>· <b>新建文稿时先选择保存位置</b>（桌面或某个文件夹），确认后才进入编写。<br>· 编辑内容<b>默认自动保存</b>，无需任何手动操作；点左上角箭头即返回文档库。<br>· 文稿位置可随时通过列表三点菜单里的「移动」更换，移动时可以直接选择「桌面」。'
-      : '<b>七、保存机制</b><br>· 新建文稿时先选择保存位置（桌面或某个文件夹），确认后进入编写。<br>· 编辑内容会自动保存，不会打断编辑；点左上角箭头返回文档库。';
-    const layoutTip = IS_APP
-      ? '<b>三、编写界面 · 左右分栏</b><br>对话按左右两栏记录，并按「全局行号」对齐——同侧连发依次下移，换到另一侧时会对齐到同一水平线的对侧栏位。<br>手机端气泡宽度可以向对侧<b>跨过中间分隔线</b>（长内容几乎占满整行宽度），但始终按行号停留在自己的行内，不会盖住对侧的气泡。'
-      : '<b>三、编写界面 · 左右分栏</b><br>对话按左右两栏记录，并按「全局行号」对齐——同侧连发依次下移，换到另一侧时会对齐到同一水平线的对侧栏位，两边内容永远不会串栏。';
-    const items = [
-      '<b>欢迎使用 WeTalk</b><br>这是一个专注于「快速记录对话」的小工具。没有复杂的排版功能，打开就能记，记完即可导出。这份说明会带你快速上手，读完后可以随时删除它。',
-      '<b>一、主界面 · 你的文档库</b><br>· 中间是文稿与文件夹列表，显示名称和创建日期，列表独立滚动，上下栏始终固定不动。<br>· 每行右侧的「三个点」可对该项目执行 <u>重命名 / 移动 / 删除</u>。<br>· 右下角圆形 ＋ 用来新建文稿或文件夹。<br>· 底部居中显示文稿与文件夹总数。',
-      '<b>二、快速导航与搜索</b><br>· 点右上角的栏位图标，右侧会展开快速导航：<b>单击文件夹</b>即可展开 / 折叠它包含的内层文件夹和文稿；<b>双击文稿</b>直接进入编辑。<br>· 顶部搜索框输入关键字，会实时按名称筛选文稿和文件夹；清空即恢复。',
-      layoutTip
-      + diagram
-      + '<span style="font-size:12.5px;opacity:.75;">示意图：右侧连发两条（深色），左侧回复落在对应行（浅色）。</span>',
-      switchTip,
-      '<b>五、气泡修改与补全</b><br>· <u>单击任意已发送气泡</u>即可直接修改文字；保存方式是点该气泡之外的任意位置（仅退出本次编辑，不会触发其他操作），再次点击才恢复正常操作；把文字全部删空后退出，该气泡所在行会整体删除，后续行自动补位。<br>· <u>单击两个气泡之间的缝隙</u>（含第一行与名称栏之间）进入「补全模式」：中间出现横跨左右的白色圆框，把内容' + (IS_APP ? '用左右圆圈发送' : '回车发送（可用方向键+回车选侧）') + '进去，可连续补多条；点右下角 ✓ 完成，一条没发就点 ✓ 则取消补全、各行回到原位。（最后一条气泡下方不会触发补全。）<br>· 点顶栏的「字体编辑」图标，下方会展开 B / U 工具条；不仅能给即将输入的文字加格式，也可以<b>选中已发送气泡里的文字</b>再点 B / U' + (IS_APP ? '' : '（气泡内也支持 Ctrl+B、Ctrl+U）') + '，只格式化选中的部分，再点一次图标收起工具条。',
-      '<b>六、人物设置</b><br>点左上角的人型图标（角色设置），可为左右两人分别设置：<br>· <u>头像</u>：从本地图库选择，或切换到纯色模式点选色环 / 输入色号，颜色会即时显示，直接点保存即可（无需再点行内小确定）。<br>· <u>名字</u>：设置后，输入框左右两个圆圈会分别显示两人名字的第一个字（未设置时仍显示「左 / 右」），对话区上方也会在左右两栏居中显示对应名字。<br>没有手动填写标题时，文稿会自动命名为「左边名字和右边名字的对话」，同名时自动追加数字区分。',
-      saveTip,
-      '<b>八、导出三种格式</b><br>点右上角导出图标：<br>· <u>TXT</u>：首行标注（左）（右）名字，左右内容均靠左排列。<br>· <u>Word</u>：双栏排版、左右绝不混行，顶部含居中头像与名字，保留加粗、下划线与头像图片。<br>' + (IS_APP ? 'TXT / Word 确认文件名后会打开系统文件选择器，由你指定具体保存位置。<br>· ' : '· ') + '<u>PDF</u>：版式与 Word 一致，在系统打印窗口选择「另存为 PDF」即可。',
-      '<b>九、账号与同步</b><br>打开应用时使用邮箱注册并登录后，所有文稿、设置和头像会自动保存到<b>云端</b>：同一账号在手机 App / 网页登录，即可自动同步全部记录。点顶部标题「WeTalk」可查看账号信息、立即同步或切换账号；退出登录不影响本机已有数据。' + (IS_APP ? '卸载 App 或清除应用数据会同时删除本机内容，请重要记录及时导出备份。' : '清理浏览器数据会同时删除本机内容，请重要记录及时导出备份。') + '<br><br>准备好了，就点右下角 ＋ 开始第一段对话吧。'
+    /* ---- 说明文档（图文版）：网页端用 w-*.jpg 截图，手机端用 m-*.jpg 截图 ---- */
+    const guideShot = (file, caption) =>
+      '<img src="images/guide/' + file + '" alt="' + caption + '" '
+      + 'style="max-width:100%;height:auto;border-radius:10px;display:block">'
+      + '<div style="font-size:12px;opacity:.72;margin-top:6px">' + caption + '</div>';
+    const wtWelcome =
+      '<b>欢迎使用 WeTalk</b><br>这是一个专注「快速记录对话」的小工具：没有复杂的排版功能，打开就能记，记完即可导出。这份说明会带你快速上手，读完后可以随时删除它。';
+    const wtScenes =
+      '适用于这些场景：<b>会议纪要、访谈记录、电话沟通备忘、线上聊天整理</b>等。凡是两个人之间的对话，都可以用左右两栏快速记录下来，并导出为规整的文档。';
+
+    /* ========== 网页端说明 ========== */
+    const webItems = [
+      wtWelcome,
+      wtScenes,
+      '<b>一、你的文档库</b><br>文档库是软件的主界面，所有文稿与文件夹都在这里统一管理：列表显示名称与创建时间；点文件夹进入下一级，点文稿直接打开编辑；底部显示文稿与文件夹的总数。',
+      guideShot('w-01.jpg', '图 1：文档库主界面（网页端）'),
+      '<b>二、新建文稿与文件夹</b><br>点击右下角圆形「＋」按钮即可新建。新建文稿时，需要先在弹窗中选择保存位置（「桌面」或某个文件夹），确认后会直接进入编辑界面；新建文件夹只需输入名称。同级同类项目不允许重名。',
+      guideShot('w-02.jpg', '图 2：进入文件夹后，面包屑显示当前路径'),
+      '<b>三、搜索与排序</b><br>顶部搜索框输入关键字，列表会实时按名称筛选；点击面包屑右侧的排序按钮，可在「新→旧」与「旧→新」之间切换，排序偏好会被自动记住。',
+      guideShot('w-03.jpg', '图 3：输入关键字后实时筛选结果'),
+      '<b>四、编写界面 · 左右分栏</b><br>对话按左右两栏记录，并按「全局行号」对齐：同一侧连续发言时气泡依次下移，换到另一侧时，新气泡对齐到对侧同一水平线，两边内容永远不会串栏。',
+      guideShot('w-04.jpg', '图 4：左右分栏的编辑界面（网页端）'),
+      '<b>五、网页端如何发送（重点，请留意）</b><br>· 按 <b>回车</b>：发送到当前选中的角色（默认右侧）<br>· 按 <b>Ctrl + 回车</b>：只在输入框内换行<br>· 用鼠标点击两侧圆圈，或按 <b>Shift + ← / →</b>：切换当前角色，选中侧圆圈会放大加框<br>· <b>按住 ← 或 → 再按回车</b>：本次内容直发对应侧，但不改变当前角色',
+      '<b>六、修改气泡与补全遗漏</b><br>· 单击任意已发送气泡即可直接修改文字；点击气泡之外的任意位置保存并退出；若把文字全部删空后退出，该气泡所在行会整体删除，后续行自动补位<br>· 单击两条气泡之间的缝隙，进入「补全模式」：在白色圆框处发送内容即可插入漏掉的对话，可连续补多条，完成后点击右下角「✓」（一条都没发则取消补全）。',
+      '<b>七、加粗与下划线</b><br>点击顶部「字体编辑」图标展开 B / U 工具条：先选中输入框或已发送气泡中的文字，再点击对应按钮即可；也可以直接使用快捷键 <b>Ctrl + B</b>、<b>Ctrl + U</b>。',
+      '<b>八、设置两个人的头像与名字</b><br>点击左上角人型图标：头像可以从本地图库选择（自动裁剪压缩为 128 像素），也可以使用纯色（色环点选或输入色号）；名字设置后，输入框两侧圆圈显示名字首字，对话区上方也会显示双方名字。',
+      guideShot('w-05.jpg', '图 5：角色设置窗口（头像与名字）'),
+      '<b>九、自动命名与自动保存</b><br>未手动命名时，文稿自动命名为「左边名字和右边名字的对话」，同名时自动追加数字区分；编辑过程中停止输入 400 毫秒后内容自动保存，无需任何手动操作。',
+      '<b>十、导出 PDF / Word / TXT</b><br>点击右上角导出按钮：<b>PDF</b> 通过系统打印窗口选择「另存为 PDF」；<b>Word</b> 为双栏表格排版，包含头像并保留加粗、下划线格式；<b>TXT</b> 首行标注双方名字，内容依次排列。',
+      guideShot('w-06.jpg', '图 6：导出文档窗口'),
+      '<b>十一、账号与云端同步</b><br>使用邮箱注册并登录后，所有文稿与设置会自动同步到云端，同一账号在网页或 App 登录即可获得全部记录。同步采用三方比对，仅在双方修改确实冲突时才弹窗让你选择，其余情况自动完成。',
+      guideShot('w-07.jpg', '图 7：首次打开时的登录窗口'),
+      guideShot('w-08.jpg', '图 8：点击左上角 WeTalk 可查看账号与同步状态'),
+      '<b>十二、日间 / 夜间主题</b><br>点击右上角月亮图标切换日间与夜间主题，选择会被自动记住。',
+      guideShot('w-09.jpg', '图 9：夜间主题下的编辑界面'),
+      '准备好了，就点击右下角「＋」开始第一段对话吧。之后忘记任何操作，都可以回到本文档查看。'
     ];
+
+    /* ========== 手机端说明 ========== */
+    const appItems = [
+      wtWelcome,
+      wtScenes,
+      '<b>一、你的文档库</b><br>文档库是 App 的主界面，所有文稿与文件夹都在这里管理：列表显示名称与创建时间；点文件夹进入，点文稿打开；底部显示总数。',
+      guideShot('m-01.jpg', '图 1：文档库主界面（手机端）'),
+      '<b>二、新建文稿与文件夹</b><br>点击右下角圆形「＋」：可选择新建文稿或新建文件夹。新建文稿会先让你选择保存位置，确认后直接进入编辑；新建文件夹输入名称即可。',
+      guideShot('m-02.jpg', '图 2：点击 ＋ 后的新建菜单'),
+      guideShot('m-03.jpg', '图 3：新建文稿时先选择保存位置'),
+      '<b>每条记录右侧的「三个点」</b>，可以对该条执行：重命名、移动、删除。删除文件夹会连同其中的内容一起删除，操作前请确认。',
+      guideShot('m-04.jpg', '图 4：行操作菜单'),
+      '<b>三、搜索与排序</b><br>顶部搜索框输入关键字即可实时筛选；面包屑右侧的排序按钮用于按创建时间切换新→旧 / 旧→新。',
+      guideShot('m-05.jpg', '图 5：按关键字实时筛选'),
+      '点击右上角的栏位图标，可展开「快速访问」目录树：单击文件夹展开或折叠，双击文稿直接打开。',
+      guideShot('m-06.jpg', '图 6：快速访问导航栏'),
+      '<b>四、编写界面 · 左右分栏</b><br>对话按左右两栏、按全局行号对齐：同侧连发依次下移，换侧对齐到同一水平线。手机端较长的气泡可以跨过中间分隔线显示，但始终停留在自己的行内，不会盖住对侧气泡。',
+      guideShot('m-07.jpg', '图 7：左右分栏编辑界面（手机端）'),
+      '<b>五、手机端如何发送（重点，与电脑端不同）</b><br>· 输入内容后，<b>点左侧圆圈发送到左栏，点右侧圆圈发送到右栏</b><br>· 按回车<b>只在框内换行，不会发送</b><br>· 什么都没输入时点圆圈不会发送，输入了空格则照常发送<br>· 最近一次发送的一侧，圆圈会放大加框提示',
+      '<b>六、修改气泡与补全遗漏</b><br>· 单击已发送气泡直接修改，点气泡之外任意位置保存退出；文字删空后退出则删除该行，后续自动补位<br>· 单击两条气泡之间的缝隙进入「补全模式」，在白色圆框处点圆圈发送即可插入遗漏内容，可连续补多条，点右下角「✓」完成。',
+      '<b>七、加粗与下划线</b><br>点击顶部「字体编辑」图标展开 B / U 工具条：先选中要处理的文字，再点击对应按钮。',
+      '<b>八、设置两个人的头像与名字</b><br>点击左上角人型图标：头像可从手机图库选择，也可以使用纯色（色环或色号）；设置名字后，输入框两侧圆圈显示名字首字，对话区上方显示双方名字。',
+      guideShot('m-08.jpg', '图 8：角色设置窗口（手机端）'),
+      '<b>九、自动命名与自动保存</b><br>未手动命名时自动生成「XX和XX的对话」标题，同名自动追加数字；编辑内容自动保存，无需任何手动操作。',
+      '<b>十、导出 PDF / Word / TXT</b><br>· 导出 <b>TXT / Word</b>：先确认文件名，系统文件选择器会打开，由你指定保存位置<br>· 导出 <b>PDF</b>：直接调起系统打印，在打印窗口选择「另存为 PDF」<br>Word 为双栏排版、含头像并保留格式；TXT 首行标注双方名字。',
+      '<b>十一、账号与云端同步</b><br>使用邮箱注册登录后，文稿会自动云端同步，同一账号在手机 App 和网页上登录即可看到全部记录。同步仅在真正冲突时弹窗提示。',
+      guideShot('m-09.jpg', '图 9：登录窗口'),
+      guideShot('m-10.jpg', '图 10：账号信息与同步状态'),
+      '<b>十二、日间 / 夜间主题</b><br>点击右上角月亮图标切换主题，选择会被自动记住。',
+      guideShot('m-11.jpg', '图 11：夜间主题编辑界面'),
+      '<b>十三、双指缩放字号</b><br>在对话区双指张合，可以放大或缩小气泡字号（0.85～1.6 倍），字号会被记住；该设置只影响本机显示，不影响导出效果。',
+      '<b>十四、返回手势说明</b><br>· 有弹窗时：返回手势先关闭弹窗<br>· 编辑页内：返回手势不会退出页面，第一次会提示你点击左上角箭头（内容会自动保存）<br>· 文件夹中：返回上一级<br>· 桌面：在 2 秒内连续返回两次，退出 App',
+      '介绍完了。点击右下角「＋」，开始记录你的第一段对话吧！'
+    ];
+    const items = IS_APP ? appItems : webItems;
     const doc = {
       id: uid(),
       folderId: null,
@@ -1452,6 +1940,7 @@
     supa.auth.onAuthStateChange((event, session) => {
       supaUser = session ? session.user : null;
       renderUserPanel();
+      loadMembership();   // 登录/登出/刷新时同步会员状态（函数声明，下方会员模块定义）
     });
   }
 
@@ -1597,6 +2086,172 @@
     }
   }
 
+  /* ============ 滑块拼图验证（登录 / 注册前置门槛） ============ */
+  const SC = (() => {
+    const BW = 300, BH = 150;          // 背景内部分辨率
+    const P = 42, R = 9;               // 拼图边长、凸包半径
+    const X0 = 6;                      // 拼图起始 x
+    const TOL = 5;                     // 对齐容差（内部像素）
+    const box = $('#slider-captcha'), puzzle = $('#sc-puzzle'), track = $('#sc-track');
+    const bg = $('#sc-bg'), piece = $('#sc-piece'), fillEl = $('#sc-fill');
+    const sbtn = $('#sc-btn'), tip = $('#sc-text');
+    piece.width = P + 2 * R; piece.height = P + 2 * R;
+
+    let gx = 0, gy = 0;                // 缺口位置
+    let verified = false;
+    let dragging = false, downX = 0, downLeft = 0, maxDx = 0, cssScale = 1;
+    let failCount = 0;
+
+    /* 拼图外形：右侧、下侧各一个向外凸包 */
+    function piecePath(c, x, y) {
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x + P, y);
+      c.lineTo(x + P, y + P * .32);
+      c.arc(x + P, y + P * .5, R, -Math.PI / 2, Math.PI / 2);
+      c.lineTo(x + P, y + P);
+      c.lineTo(x + P * .68, y + P);
+      c.arc(x + P * .5, y + P, R, 0, Math.PI);
+      c.lineTo(x, y + P);
+      c.closePath();
+    }
+
+    /* 程序化生成背景：随机渐变 + 几何碎片 + 线条，无需外部图片 */
+    function makeScene() {
+      const c = document.createElement('canvas');
+      c.width = BW; c.height = BH;
+      const x = c.getContext('2d');
+      const h = Math.floor(Math.random() * 360);
+      const g = x.createLinearGradient(0, 0, BW, BH);
+      g.addColorStop(0, `hsl(${h},52%,60%)`);
+      g.addColorStop(1, `hsl(${(h + 45) % 360},46%,40%)`);
+      x.fillStyle = g; x.fillRect(0, 0, BW, BH);
+      for (let i = 0; i < 20; i++) {
+        const hh = (h + Math.random() * 90 - 30 + 360) % 360;
+        x.fillStyle = `hsla(${hh},55%,${35 + Math.random() * 40}%,${.18 + Math.random() * .4})`;
+        x.beginPath();
+        x.arc(Math.random() * BW, Math.random() * BH, 8 + Math.random() * 26, 0, Math.PI * 2);
+        x.fill();
+      }
+      x.strokeStyle = 'rgba(255,255,255,.22)'; x.lineWidth = 2;
+      for (let i = 0; i < 5; i++) {
+        x.beginPath();
+        x.moveTo(Math.random() * BW, Math.random() * BH);
+        x.lineTo(Math.random() * BW, Math.random() * BH);
+        x.stroke();
+      }
+      return c;
+    }
+
+    /* 生成新挑战 */
+    function build() {
+      const scene = makeScene();
+      gx = Math.round(BW * .42 + Math.random() * (BW * .5 - P - 6));
+      gy = Math.round(8 + Math.random() * (BH - P - 2 * R - 16));
+      const bc = bg.getContext('2d');
+      bc.clearRect(0, 0, BW, BH);
+      bc.drawImage(scene, 0, 0);
+      piecePath(bc, gx, gy);
+      bc.fillStyle = 'rgba(10,12,18,.5)'; bc.fill();
+      bc.strokeStyle = 'rgba(255,255,255,.85)'; bc.lineWidth = 1; bc.stroke();
+      const pc = piece.getContext('2d');
+      pc.clearRect(0, 0, piece.width, piece.height);
+      pc.save();
+      pc.translate(R - gx, R - gy);
+      piecePath(pc, gx, gy); pc.clip();
+      pc.drawImage(scene, 0, 0);
+      piecePath(pc, gx, gy);
+      pc.strokeStyle = 'rgba(255,255,255,.85)'; pc.lineWidth = 1; pc.stroke();
+      pc.restore();
+    }
+
+    /* 按内部 x 放置拼图块（考虑浮层 CSS 缩放） */
+    function placeAt(cx) {
+      piece.style.left = (cx - R) * cssScale + 'px';
+      piece.style.top = (gy - R) * cssScale + 'px';
+      piece.style.width = piece.width * cssScale + 'px';
+      piece.style.height = piece.height * cssScale + 'px';
+    }
+
+    function showPuzzle() {
+      puzzle.classList.add('show');
+      track.classList.add('dragging');
+      cssScale = puzzle.clientWidth / BW;
+      maxDx = track.clientWidth - sbtn.offsetWidth;
+      placeAt(X0);
+    }
+
+    function pass(hl) {
+      verified = true;
+      box.classList.add('verified');
+      tip.textContent = '验证通过';
+      sbtn.style.left = hl + 'px';
+      fillEl.style.width = hl + sbtn.offsetWidth + 'px';
+      setTimeout(() => puzzle.classList.remove('show'), 350);
+      $('#auth-submit').disabled = false;
+    }
+
+    function fail(hl) {
+      failCount++;
+      sbtn.style.transition = 'left .25s ease';
+      fillEl.style.transition = 'width .25s ease';
+      piece.style.transition = 'left .25s ease';
+      sbtn.style.left = '0';
+      fillEl.style.width = '0';
+      placeAt(X0);
+      setTimeout(() => {
+        sbtn.style.transition = ''; fillEl.style.transition = ''; piece.style.transition = '';
+        if (failCount >= 2) { failCount = 0; build(); }
+        puzzle.classList.remove('show');
+        track.classList.remove('dragging');
+      }, 270);
+    }
+
+    sbtn.addEventListener('pointerdown', e => {
+      if (verified) return;
+      e.preventDefault();
+      dragging = true;
+      try { sbtn.setPointerCapture(e.pointerId); } catch (_) {}
+      downX = e.clientX;
+      downLeft = parseFloat(sbtn.style.left) || 0;
+      showPuzzle();
+    });
+    sbtn.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - downX;
+      const hl = Math.max(0, Math.min(maxDx, downLeft + dx));
+      sbtn.style.left = hl + 'px';
+      fillEl.style.width = hl + sbtn.offsetWidth + 'px';
+      const cx = X0 + (hl / maxDx) * (BW - P - X0);
+      placeAt(cx);
+    });
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      track.classList.remove('dragging');
+      const hl = parseFloat(sbtn.style.left) || 0;
+      const cx = X0 + (hl / maxDx) * (BW - P - X0);
+      if (Math.abs(cx - gx) <= TOL) pass(hl); else fail(hl);
+    }
+    sbtn.addEventListener('pointerup', endDrag);
+    sbtn.addEventListener('pointercancel', endDrag);
+
+    /* 重置（切换标签 / 登录失败 / 成功后关闭） */
+    function reset() {
+      verified = false; failCount = 0;
+      box.classList.remove('verified');
+      tip.textContent = '按住滑块，拖动完成拼图';
+      sbtn.style.transition = 'none'; fillEl.style.transition = 'none'; piece.style.transition = 'none';
+      sbtn.style.left = '0'; fillEl.style.width = '0';
+      puzzle.classList.remove('show'); track.classList.remove('dragging');
+      build();
+      $('#auth-submit').disabled = true;
+    }
+
+    build();
+    return { reset, isVerified: () => verified };
+  })();
+
   /* ============ 强制登录门 ============ */
   function openAuthGate() {
     authMode = 'login';
@@ -1610,6 +2265,7 @@
     $('#auth-password2').value = '';
     $('#auth-error').textContent = '';
     document.querySelectorAll('.pw-eye').forEach(resetOneEye);
+    SC.reset();
     openModal('#modal-auth');
   }
 
@@ -1621,6 +2277,7 @@
       $('#auth-submit').textContent = authMode === 'login' ? '登录' : '注册并同步';
       $('#auth-note-pw').classList.toggle('hidden', authMode === 'login');
       $('#auth-error').textContent = '';
+      SC.reset();
     });
   });
 
@@ -1631,6 +2288,7 @@
       $('#modal-mask').classList.add('hidden');
     }
     renderUserPanel();
+    SC.reset();
   }
 
   $('#auth-form').addEventListener('submit', async e => {
@@ -1641,6 +2299,7 @@
     err.textContent = '';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = '请输入正确的邮箱地址'; return; }
     if (pwd.length < 6) { err.textContent = '密码至少 6 位'; return; }
+    if (!SC.isVerified()) { err.textContent = '请先完成滑块验证'; return; }
     const btn = $('#auth-submit');
     btn.disabled = true;
     try {
@@ -1669,8 +2328,9 @@
       }
     } catch (ex) {
       err.textContent = ex.error || '操作失败，请重试';
+      SC.reset();   // 登录 / 注册失败：滑块作废，需重新验证
     } finally {
-      btn.disabled = false;
+      btn.disabled = !SC.isVerified();
     }
   });
 
@@ -1689,6 +2349,137 @@
       b.classList.toggle('is-hidden-pw', !show);
       b.setAttribute('aria-label', show ? '隐藏密码' : '查看密码');
     });
+  });
+
+  /* ============================================================
+     会员模块（激活码 / 四档时长 / 到期自动失效）
+     · 档位：day 一日体验 · month 月度 · quarter 季度 · year 年度
+     · 激活通过 RPC redeem_activation_code 完成（码表仅服务端可访问）
+     · 有效期在当前会员基础上顺延，expires_at 为唯一过期判定
+     · 门控点：导出 Word / 按键自定义 / 人物信息库第 4~10 条
+     ============================================================ */
+  const VIP_PLANS = {
+    day: '一日体验', month: '月度会员', quarter: '季度会员', year: '年度会员'
+  };
+  let isVip = false;
+  let vipExpiresAt = null;
+  let vipPlan = null;
+
+  async function loadMembership() {
+    if (!supa || !supaUser) {
+      isVip = false; vipExpiresAt = null; vipPlan = null;
+      renderVipState();
+      return;
+    }
+    try {
+      const { data, error } = await supa
+        .from('memberships')
+        .select('is_vip, plan, expires_at')
+        .eq('user_id', supaUser.id)
+        .maybeSingle();
+      if (error) return;   // 弱网等失败保持静默，不打扰使用
+      vipPlan = data ? data.plan : null;
+      vipExpiresAt = data && data.expires_at ? new Date(data.expires_at) : null;
+      isVip = !!(data && data.is_vip && vipExpiresAt && vipExpiresAt.getTime() > Date.now());
+    } finally {
+      renderVipState();
+    }
+  }
+
+  /* 剩余时间文案 */
+  function remainText(exp) {
+    const ms = exp.getTime() - Date.now();
+    if (ms <= 0) return '会员已过期';
+    const d = Math.floor(ms / 864e5);
+    if (d >= 1) return `会员剩余 ${d} 天`;
+    const h = Math.floor(ms / 36e5);
+    if (h >= 1) return `会员剩余 ${h} 小时`;
+    return `会员剩余 ${Math.max(1, Math.floor(ms / 6e4))} 分钟`;
+  }
+  function fmtExpire(exp) {
+    const p = n => String(n).padStart(2, '0');
+    return `${exp.getFullYear()}-${p(exp.getMonth() + 1)}-${p(exp.getDate())} ${p(exp.getHours())}:${p(exp.getMinutes())}`;
+  }
+  /* 打开会员弹窗（带当前状态；从主界面入口调用） */
+  function openVipModal() {
+    $('#vip-code').value = '';
+    $('#vip-current').textContent = isVip && vipExpiresAt
+      ? `${VIP_PLANS[vipPlan] || '会员'} · ${remainText(vipExpiresAt)}`
+      : '';
+    openModal('#modal-vip');
+    setTimeout(() => $('#vip-code').focus(), 60);
+  }
+
+  /* 账号面板会员状态行（始终存在；未开通/已过期时可点击开通） */
+  function renderVipState() {
+    const el = $('#up-vip-state');
+    if (!el) return;
+    if (isVip && vipExpiresAt) {
+      el.textContent = `${remainText(vipExpiresAt)} · 有效期至 ${fmtExpire(vipExpiresAt)}`;
+      el.classList.remove('clickable', 'free');
+    } else if (vipExpiresAt) {
+      el.textContent = '会员已过期，点击续费';
+      el.classList.add('clickable', 'free');
+    } else {
+      el.textContent = '目前您未开通会员，点击开通';
+      el.classList.add('clickable', 'free');
+    }
+  }
+
+  /* 激活码兑换（返回 plan 名） */
+  async function redeemByCode(code) {
+    if (!supaUser) throw { error: '请先登录后再激活' };
+    const { data, error } = await supa.rpc('redeem_activation_code', {
+      p_code: String(code).trim()
+    });
+    if (error) throw { error: error.message };
+    if (!data) throw { error: '激活失败，请重试' };
+    vipPlan = data.plan;
+    vipExpiresAt = new Date(data.expires_at);
+    isVip = vipExpiresAt.getTime() > Date.now();
+  }
+
+  /* 会员门控：已会员返回 true；否则关闭当前弹窗并弹激活窗 */
+  function requireVip() {
+    if (isVip) return true;
+    closeModals();
+    openVipModal();
+    return false;
+  }
+  async function submitVipCode() {
+    const btn = $('#vip-buy');
+    const code = $('#vip-code').value.trim();
+    if (!code) return toast('请输入激活码');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '激活中…';
+    try {
+      await redeemByCode(code);
+      closeModals();
+      renderVipState();
+      toast(`已激活${VIP_PLANS[vipPlan] || '会员'}`);
+    } catch (e) {
+      const m = e.error || '';
+      if (/schema cache|could not find the table|activation_codes|function/i.test(m))
+        toast('会员功能未就绪：请先执行最新版 supabase_membership.sql');
+      else if (/permission denied/i.test(m))
+        toast('数据表权限缺失：请重新执行最新版 supabase_membership.sql');
+      else toast(m || '激活失败，请重试');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
+  }
+  $('#vip-buy').addEventListener('click', submitVipCode);
+  $('#vip-code').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); submitVipCode(); }
+  });
+  $('#vip-cancel').addEventListener('click', closeModals);
+  /* 主界面「我的会员」按钮与状态框（未开通/过期时） */
+  $('#up-vip').addEventListener('click', openVipModal);
+  $('#up-vip-state').addEventListener('click', () => {
+    if ($('#up-vip-state').classList.contains('clickable')) openVipModal();
   });
 
   /* ============ 启动：恢复会话，自动同步；无会话弹登录门 ============ */

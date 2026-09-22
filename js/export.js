@@ -1,17 +1,7 @@
-/* ============ WeTalk · 导出模块（txt / word(.docx) / pdf） ============ */
+/* ============ WeTalk · 导出模块（word(.docx) / pdf / 长图jpg） ============ */
 const WTExport = (() => {
 
-  /* ---------- 文本/HTML 规整 ---------- */
-  function htmlToText(html) {
-    return html
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(div|p|li|h\d)>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
+  /* ---------- HTML 规整 ---------- */
   function normHtml(html) {
     let s = html
       .replace(/<br\s*\/?>/gi, '<br>')
@@ -61,19 +51,260 @@ const WTExport = (() => {
     return u8;
   }
 
-  /* ---------- TXT ---------- */
-  function buildTXTBlob(doc) {
-    const L = doc.settings.left.name || '';
-    const R = doc.settings.right.name || '';
-    let out = `（左）${L}\n（右）${R}\n\n`;
-    [...doc.lines].sort((a, b) => a.row - b.row).forEach(line => {
-      // 左右内容各自顶自己栏位左侧对齐（不再用空格把右栏推到行尾）
-      out += htmlToText(line.html) + '\n\n';
+  /* ============================================================
+     长图（PNG · 2x 高清）：完整排版——标题 + 双方头像/名字 + 全部气泡
+     Canvas 两遍布局：先量高排版，再逐元素绘制
+     ============================================================ */
+  const IMG_W = 750;
+  const IMG_SCALE = 2;   // 2 倍分辨率渲染，高清屏不糊（输出 PNG）
+  const IMG_PAD = 34;
+  const IMG_FS = 15;
+  const IMG_LH = Math.round(IMG_FS * 1.55);       // 24
+  const IMG_TITLE_FS = 23;
+  const IMG_TITLE_LH = 34;
+  const IMG_AV = 60;                               // 头像直径
+  const IMG_BUBBLE_TOP = 18;                       // 分割线到首条气泡的间距
+  const IMG_BUB_PAD_X = 19;
+  const IMG_BUB_PAD_Y = 13;
+  const IMG_BUB_MAX = IMG_W - IMG_PAD * 2 - 130;   // 气泡文字最大宽度
+
+  /* HTML → 带样式片段（bold / under）+ 换行符 */
+  function styledTokens(html) {
+    let s = String(html || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, t => /^<\/?[bu]>$/i.test(t) ? t : '');
+    s = s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+         .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    const tokens = [];
+    let bold = false, under = false;
+    s.split(/(<\/?[bu]>|\n)/g).forEach(p => {
+      if (p === '') return;
+      const pl = p.toLowerCase();
+      if (pl === '<b>') bold = true;
+      else if (pl === '</b>') bold = false;
+      else if (pl === '<u>') under = true;
+      else if (pl === '</u>') under = false;
+      else if (p === '\n') tokens.push({ nl: true });
+      else tokens.push({ t: p, bold, under });
     });
-    return new Blob([out], { type: 'text/plain;charset=utf-8' });
+    return tokens;
   }
-  function exportTXT(doc) {
-    downloadBlob(buildTXTBlob(doc), doc.title + '.txt');
+
+  /* 片段 → 排版单元：连续 ASCII 词组 / 空白 / 单字（CJK） */
+  function unitsOf(tokens) {
+    const units = [];
+    tokens.forEach(tk => {
+      if (tk.nl) { units.push({ br: true }); return; }
+      const re = /[A-Za-z0-9'’.,;:!?（）()·\-–—\/]+|\s+|./g;
+      let m;
+      while ((m = re.exec(tk.t))) units.push({ t: m[0], bold: tk.bold, under: tk.under });
+    });
+    return units;
+  }
+
+  function setFont(ctx, bold, fs) {
+    ctx.font = (bold ? 'bold ' : '') + fs + 'px sans-serif';
+  }
+
+  /* 贪心换行 → 每行 [{t,bold,under,w}]，相邻同样式自动合并 */
+  function layoutLines(units, maxW, ctx, fs) {
+    const raw = [[]];
+    let curW = 0;
+    const breakLine = () => { raw.push([]); curW = 0; };
+    units.forEach(u => {
+      if (u.br) { breakLine(); return; }
+      if (curW === 0 && /^\s+$/.test(u.t)) return;
+      setFont(ctx, u.bold, fs);
+      let w = ctx.measureText(u.t).width;
+      if (curW + w > maxW && curW > 0) {
+        breakLine();
+        if (/^\s+$/.test(u.t)) return;
+      }
+      const line = raw[raw.length - 1];
+      if (w > maxW && curW === 0) {
+        // 超长词：逐字拆行
+        Array.from(u.t).forEach(ch => {
+          setFont(ctx, u.bold, fs);
+          const cw = ctx.measureText(ch).width;
+          if (cw && curW + cw > maxW && curW > 0) breakLine();
+          raw[raw.length - 1].push({ t: ch, bold: u.bold, under: u.under, w: cw });
+          curW += cw;
+        });
+        return;
+      }
+      line.push({ t: u.t, bold: u.bold, under: u.under, w });
+      curW += w;
+    });
+    return raw.map(frags => {
+      const merged = [];
+      frags.forEach(f => {
+        const last = merged[merged.length - 1];
+        if (last && last.bold === f.bold && last.under === f.under) {
+          last.t += f.t; last.w += f.w;
+        } else merged.push({ ...f });
+      });
+      return merged;
+    });
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  /* 头像预加载：dataURL → Image（失败回退占位）；纯色/空 → 色块 */
+  function loadAvatar(src) {
+    return new Promise(res => {
+      if (!src) return res({ color: '#c4c8d2' });
+      if (/^#[0-9a-f]{3,8}$/i.test(src)) return res({ color: src });
+      if (src.indexOf('data:') === 0) {
+        const img = new Image();
+        let done = false;
+        const finish = v => { if (!done) { done = true; res(v); } };
+        img.onload = () => finish({ img });
+        img.onerror = () => finish({ color: '#c4c8d2' });
+        setTimeout(() => finish({ color: '#c4c8d2' }), 4000);
+        img.src = src;
+      } else res({ color: '#c4c8d2' });
+    });
+  }
+
+  function drawAvatar(ctx, av, cx, top, size) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, top + size / 2, size / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = av.color || '#c4c8d2';
+    ctx.fill();
+    ctx.clip();
+    if (av.img) {
+      const sc = Math.max(size / av.img.width, size / av.img.height);
+      const dw = av.img.width * sc, dh = av.img.height * sc;
+      ctx.drawImage(av.img, cx - dw / 2, top + (size - dh) / 2, dw, dh);
+    }
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(cx, top + size / 2, size / 2, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,0,0,.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  async function buildImageBlob(doc) {
+    const measure = document.createElement('canvas').getContext('2d');
+    const sorted = [...doc.lines].sort((a, b) => a.row - b.row);
+
+    const [avL, avR] = await Promise.all([
+      loadAvatar(doc.settings.left.avatar),
+      loadAvatar(doc.settings.right.avatar)
+    ]);
+
+    // 标题排版
+    const titleLines = layoutLines(
+      unitsOf([{ t: doc.title || '未命名对话', bold: true, under: false }]),
+      IMG_W - IMG_PAD * 2, measure, IMG_TITLE_FS
+    );
+    // 气泡排版
+    const bubbles = sorted.map(l => {
+      const lines = layoutLines(unitsOf(styledTokens(l.html)), IMG_BUB_MAX, measure, IMG_FS);
+      const h = IMG_BUB_PAD_Y * 2 + Math.max(1, lines.length) * IMG_LH;
+      return { side: l.side, lines, h };
+    });
+
+    // ---- 总高 ----
+    let y = IMG_PAD;
+    y += titleLines.length * IMG_TITLE_LH + 24;
+    y += IMG_AV + 20;
+    y += IMG_BUBBLE_TOP;
+    bubbles.forEach(b => { y += b.h + 12; });
+    const H = Math.ceil(y + 30);
+
+    // ---- 绘制 ----
+    const cv = document.createElement('canvas');
+    cv.width = IMG_W * IMG_SCALE; cv.height = H * IMG_SCALE;
+    const ctx = cv.getContext('2d');
+    ctx.scale(IMG_SCALE, IMG_SCALE);   // 全部按逻辑坐标绘制，输出 2 倍像素
+    ctx.textBaseline = 'alphabetic';
+
+    // 背景
+    ctx.fillStyle = '#edf0f4';
+    ctx.fillRect(0, 0, IMG_W, H);
+
+    // 标题（居中、加粗）
+    setFont(ctx, true, IMG_TITLE_FS);
+    ctx.fillStyle = '#17181d';
+    ctx.textAlign = 'center';
+    titleLines.forEach((ln, i) => {
+      const text = ln.map(f => f.t).join('');
+      ctx.fillText(text, IMG_W / 2, IMG_PAD + IMG_TITLE_FS + i * IMG_TITLE_LH);
+    });
+    ctx.textAlign = 'left';
+    y = IMG_PAD + titleLines.length * IMG_TITLE_LH + 24;
+
+    // 双方头像 + 名字（左右各占一半，外侧对齐）
+    // 左侧
+    drawAvatar(ctx, avL, IMG_PAD + IMG_AV / 2, y, IMG_AV);
+    setFont(ctx, true, 14);
+    ctx.fillStyle = '#23252b';
+    ctx.fillText(doc.settings.left.name || '左角色', IMG_PAD + IMG_AV + 12, y + IMG_AV / 2 + 5);
+    // 右侧
+    const nameR = doc.settings.right.name || '右角色';
+    setFont(ctx, true, 14);
+    const rw = ctx.measureText(nameR).width;
+    drawAvatar(ctx, avR, IMG_W - IMG_PAD - IMG_AV / 2, y, IMG_AV);
+    ctx.fillText(nameR, IMG_W - IMG_PAD - IMG_AV - 12 - rw, y + IMG_AV / 2 + 5);
+    // 分隔线
+    y += IMG_AV + 20;
+    ctx.strokeStyle = 'rgba(0,0,0,.1)';
+    ctx.beginPath();
+    ctx.moveTo(IMG_PAD, y); ctx.lineTo(IMG_W - IMG_PAD, y);
+    ctx.stroke();
+    y += IMG_BUBBLE_TOP;   // 分割线与首条气泡拉开间距
+
+    // 对话气泡
+    bubbles.forEach(b => {
+      let bw = 0;
+      b.lines.forEach(ln => {
+        let lw = 0; ln.forEach(f => { lw += f.w; });
+        bw = Math.max(bw, lw);
+      });
+      bw += IMG_BUB_PAD_X * 2;
+      bw = Math.min(bw, IMG_BUB_MAX + IMG_BUB_PAD_X * 2);
+      const isL = b.side === 'L';
+      const bx = isL ? IMG_PAD : IMG_W - IMG_PAD - bw;
+      roundRect(ctx, bx, y, bw, b.h, 16);
+      ctx.fillStyle = isL ? '#ffffff' : '#22242b';
+      ctx.fill();
+      // 逐行绘制文字
+      b.lines.forEach((ln, li) => {
+        const baseY = y + IMG_BUB_PAD_Y + IMG_FS + li * IMG_LH;
+        let fx = bx + IMG_BUB_PAD_X;
+        ln.forEach(f => {
+          setFont(ctx, f.bold, IMG_FS);
+          ctx.fillStyle = isL ? '#1b1d22' : '#e9eaee';
+          ctx.fillText(f.t, fx, baseY);
+          if (f.under) {
+            ctx.strokeStyle = isL ? '#1b1d22' : '#e9eaee';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(fx, baseY + 3); ctx.lineTo(fx + f.w, baseY + 3);
+            ctx.stroke();
+          }
+          fx += f.w;
+        });
+      });
+      y += b.h + 12;
+    });
+
+    return await new Promise(res => {
+      cv.toBlob(blob => res(blob), 'image/png');   // PNG 无损，文字边缘清晰
+    });
   }
 
   /* ============================================================
@@ -400,5 +631,5 @@ ${printScript}
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }
 
-  return { exportTXT, exportWord, exportPDF, buildTXTBlob, buildWordBlob, downloadBlob };
+  return { exportWord, exportPDF, buildWordBlob, buildImageBlob, downloadBlob };
 })();
