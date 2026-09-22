@@ -1840,7 +1840,8 @@
 
   /* ============ 说明文档（登录后生成，App / 网页各一份） ============
      登录 App 时生成 App 说明，登录网页时生成网页说明；生成后一直保留，直到用户自己删除。
-     两份都随数据云同步，所以登录过 App 的用户在网页端也能看到 App 说明，反之同理。
+     各端只显示本端那一份（App 只看到 App 说明，网页只看到网页说明），
+     另一端的说明文档仍保留在数据里随云同步走，不会因此丢失。
      删除状态记在数据里（db.guideDeleted），随云同步走，避免一端删除后被另一端补回来。 */
   const GUIDE_TITLES = [
     // 新品牌（当前）
@@ -1851,7 +1852,6 @@
     '欢迎使用WeTalk·网页使用说明',
     '欢迎使用WeTalk·App使用说明'
   ];
-  const CURRENT_GUIDE_TITLES = ['欢迎使用WeCTalk·网页使用说明', '欢迎使用WeCTalk·App使用说明'];
   const LEGACY_GUIDE_TITLES = ['欢迎使用 WeTalk · 使用说明'];
   const guideTitle = IS_APP
     ? '欢迎使用WeCTalk·App使用说明'
@@ -1868,9 +1868,9 @@
     if (!p) return;
     db.guideDeleted = Object.assign({}, db.guideDeleted, { [p]: 1 });
   }
-  /* 旧品牌（WeTalk）的说明文档保留在库中但界面隐藏；当前品牌的两端说明都正常显示 */
+  /* 旧品牌（WeTalk）的说明文档、以及另一端的那份：保留在数据中但界面隐藏 */
   function isHiddenGuide(d) {
-    return GUIDE_TITLES.includes(d.title) && !CURRENT_GUIDE_TITLES.includes(d.title);
+    return GUIDE_TITLES.includes(d.title) && d.title !== guideTitle;
   }
   /* 登录并同步成功后调用：本平台说明文档缺失就补种（首次登录 / 被云端整库覆盖后丢失）；
      用户自己删除过的那一端不再补种。 */
@@ -2285,7 +2285,7 @@
       sbtn.style.left = hl + 'px';
       fillEl.style.width = hl + sbtn.offsetWidth + 'px';
       setTimeout(() => puzzle.classList.remove('show'), 350);
-      $('#auth-submit').disabled = false;
+      refreshAuthSubmit();
     }
 
     function fail(hl) {
@@ -2342,11 +2342,50 @@
       sbtn.style.left = '0'; fillEl.style.width = '0';
       puzzle.classList.remove('show'); track.classList.remove('dragging');
       build();
-      $('#auth-submit').disabled = true;
+      refreshAuthSubmit();
     }
 
     build();
     return { reset, isVerified: () => verified };
+  })();
+
+  /* ============ 隐私政策勾选（登录 / 注册按钮下方） ============
+     未勾选时按钮灰显，点击弹提示（保持可点，否则点不出提示）；勾选后按滑块验证状态启用。 */
+  const AGREE_KEY = 'wectalk_privacy_agreed_v1';
+  function refreshAuthSubmit() {
+    const btn = $('#auth-submit');
+    if (!$('#auth-agree').checked) {
+      btn.disabled = false;              // 保持可点：点击后弹「请先同意隐私政策」
+      btn.classList.add('is-dim');
+    } else {
+      btn.disabled = !SC.isVerified();
+      btn.classList.remove('is-dim');
+    }
+  }
+  function closeAgreeModal() {
+    $('#modal-agree').classList.add('hidden');
+    if (!document.querySelector('.modal:not(.hidden)')) {
+      $('#modal-mask').classList.add('hidden');
+    }
+  }
+  (function initAuthAgree() {
+    let agreed = false;
+    try { agreed = localStorage.getItem(AGREE_KEY) === '1'; } catch (e) {}
+    $('#auth-agree').checked = agreed;
+    $('#auth-agree').addEventListener('change', () => {
+      try { localStorage.setItem(AGREE_KEY, $('#auth-agree').checked ? '1' : '0'); } catch (e) {}
+      refreshAuthSubmit();
+    });
+    $('#auth-policy').addEventListener('click', e => {
+      e.preventDefault();
+      if (IS_APP && window.WTNative && window.WTNative.openExternal) {
+        window.WTNative.openExternal('https://tatoo79.github.io/WeCTalk/privacy.html');
+      } else {
+        window.open('privacy.html', '_blank');
+      }
+    });
+    $('#agree-ok').addEventListener('click', closeAgreeModal);
+    refreshAuthSubmit();
   })();
 
   /* ============ 强制登录门 ============ */
@@ -2390,9 +2429,10 @@
 
   $('#auth-form').addEventListener('submit', async e => {
     e.preventDefault();
+    const err = $('#auth-error');
+    if (!$('#auth-agree').checked) { openModal('#modal-agree'); return; }
     const email = $('#auth-email').value.trim();
     const pwd = $('#auth-password').value;
-    const err = $('#auth-error');
     err.textContent = '';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent = '请输入正确的邮箱地址'; return; }
     if (pwd.length < 6) { err.textContent = '密码至少 6 位'; return; }
@@ -2427,7 +2467,7 @@
       err.textContent = ex.error || '操作失败，请重试';
       SC.reset();   // 登录 / 注册失败：滑块作废，需重新验证
     } finally {
-      btn.disabled = !SC.isVerified();
+      refreshAuthSubmit();
     }
   });
 

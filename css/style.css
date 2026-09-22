@@ -972,6 +972,18 @@ html, body { overscroll-behavior: none; }
 }
 .primary-btn:disabled { opacity: .55; cursor: default; filter: none; }
 
+/* 未勾选隐私政策时的提示（与云端冲突弹窗同一套样式） */
+.agree-modal { width: 330px; max-width: 94vw; }
+.agree-modal p {
+  font-size: 13.5px; color: var(--text-2);
+  text-align: center; line-height: 1.9;
+}
+.agree-modal .modal-center { margin-top: 20px; }
+.agree-modal .modal-center button {
+  flex: 1 1 0; min-width: 0; padding: 11px 6px;
+  font-size: 13.5px; letter-spacing: 0;
+}
+
 /* ============================================================
    左侧账号栏（点 WeCTalk 标题展开）
    ============================================================ */
@@ -1133,6 +1145,36 @@ html, body { overscroll-behavior: none; }
   opacity: .5; cursor: not-allowed;
   box-shadow: none; transform: none; filter: none;
 }
+/* 未勾选《隐私政策》：按钮灰显，但仍可点击（点击弹提示） */
+.auth-submit.is-dim {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1.5px solid var(--border);
+  box-shadow: none; opacity: 1;
+}
+.auth-submit.is-dim:hover,
+.auth-submit.is-dim:active { filter: none; transform: none; }
+
+/* 隐私政策勾选（登录 / 注册按钮下方，始终保持一行）
+   注意：#auth-form input 的优先级更高，勾选框必须用同级 ID 前缀覆盖 */
+.auth-agree {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: nowrap; gap: 4px;
+  margin-top: 14px;
+  font-size: 12px; color: var(--text-2); line-height: 1.7;
+  white-space: nowrap;
+}
+#auth-form .auth-agree input[type="checkbox"] {
+  width: 15px; height: 15px; margin: 0 1px 0 0; padding: 0;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--surface);
+  accent-color: var(--accent-solid);
+  cursor: pointer; flex: 0 0 auto;
+}
+.auth-agree label, .auth-agree a { white-space: nowrap; flex-shrink: 0; }
+.auth-agree label { cursor: pointer; }
+.auth-agree a { color: var(--accent-solid); text-decoration: none; }
+.auth-agree a:hover { text-decoration: underline; }
 #auth-error:empty { display: none; }
 
 /* ---------- 登录 / 注册：滑块拼图验证 ---------- */
