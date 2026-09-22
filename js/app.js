@@ -414,10 +414,13 @@
         while (ids.length) {
           const cur = ids.pop();
           db.folders.filter(f => f.parentId === cur).forEach(f => ids.push(f.id));
+          db.docs.filter(d => d.folderId === cur).forEach(d => markGuideDeleted(d.title));
           db.docs = db.docs.filter(d => d.folderId !== cur);
           db.folders = db.folders.filter(f => f.id !== cur);
         }
       } else {
+        const doc = db.docs.find(d => d.id === item.id);
+        if (doc) markGuideDeleted(doc.title);
         db.docs = db.docs.filter(d => d.id !== item.id);
       }
       save(); closeModals(); renderLibrary();
@@ -1835,8 +1838,10 @@
   $('#btn-theme').onclick = toggleTheme;
   $('#btn-theme-ed').onclick = toggleTheme;
 
-  /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wectalk_guide_seeded_app_v9' : 'wectalk_guide_seeded_v9';
+  /* ============ 说明文档（登录后生成，App / 网页各一份） ============
+     登录 App 时生成 App 说明，登录网页时生成网页说明；生成后一直保留，直到用户自己删除。
+     两份都随数据云同步，所以登录过 App 的用户在网页端也能看到 App 说明，反之同理。
+     删除状态记在数据里（db.guideDeleted），随云同步走，避免一端删除后被另一端补回来。 */
   const GUIDE_TITLES = [
     // 新品牌（当前）
     '欢迎使用WeCTalk·网页使用说明',
@@ -1846,24 +1851,37 @@
     '欢迎使用WeTalk·网页使用说明',
     '欢迎使用WeTalk·App使用说明'
   ];
+  const CURRENT_GUIDE_TITLES = ['欢迎使用WeCTalk·网页使用说明', '欢迎使用WeCTalk·App使用说明'];
   const LEGACY_GUIDE_TITLES = ['欢迎使用 WeTalk · 使用说明'];
   const guideTitle = IS_APP
     ? '欢迎使用WeCTalk·App使用说明'
     : '欢迎使用WeCTalk·网页使用说明';
-  /* 另一端平台的说明文档：保留在库中（避免删除动作经云同步互相覆盖），仅在本机界面隐藏 */
-  function isHiddenGuide(d) {
-    return GUIDE_TITLES.includes(d.title) && d.title !== guideTitle;
+  const GUIDE_PLATFORM = IS_APP ? 'app' : 'web';
+  /* 说明文档标题 → 平台：用户在哪一端删掉说明，就只标记那一端，另一端不受影响 */
+  function guidePlatformOf(title) {
+    return title === '欢迎使用WeCTalk·App使用说明' ? 'app'
+      : title === '欢迎使用WeCTalk·网页使用说明' ? 'web' : null;
   }
-  function seedGuide() {
-    // 仅清理远古版旧标题；网页/App 两端说明都保留，互不删除
+  /* 用户删掉某端说明文档：在数据里记一笔，随云同步走，之后任何一端都不再补种 */
+  function markGuideDeleted(title) {
+    const p = guidePlatformOf(title);
+    if (!p) return;
+    db.guideDeleted = Object.assign({}, db.guideDeleted, { [p]: 1 });
+  }
+  /* 旧品牌（WeTalk）的说明文档保留在库中但界面隐藏；当前品牌的两端说明都正常显示 */
+  function isHiddenGuide(d) {
+    return GUIDE_TITLES.includes(d.title) && !CURRENT_GUIDE_TITLES.includes(d.title);
+  }
+  /* 登录并同步成功后调用：本平台说明文档缺失就补种（首次登录 / 被云端整库覆盖后丢失）；
+     用户自己删除过的那一端不再补种。 */
+  function ensureGuide() {
+    if (!supaUser) return;
+    // 仅清理远古版旧标题；各品牌两端说明都保留，互不删除
     const n0 = db.docs.length;
     db.docs = db.docs.filter(d => !LEGACY_GUIDE_TITLES.includes(d.title));
     if (db.docs.length !== n0) save();
-    if (localStorage.getItem(GUIDE_KEY)) return;
-    // 新版本种子：同标题的旧内容也一并替换
-    const n1 = db.docs.length;
-    db.docs = db.docs.filter(d => d.title !== guideTitle);
-    if (db.docs.length !== n1) save();
+    if ((db.guideDeleted || {})[GUIDE_PLATFORM]) return;
+    if (db.docs.some(d => d.title === guideTitle)) return;
     /* ---- 说明文档（图文版）：网页端用 w-*.jpg 截图，手机端用 m-*.jpg 截图 ---- */
     const guideShot = (file, caption) =>
       '<img src="images/guide/' + file + '" alt="' + caption + '" '
@@ -1950,7 +1968,6 @@
     };
     db.docs.push(doc);
     save();
-    localStorage.setItem(GUIDE_KEY, '1');
   }
   /* ============ 云同步（Supabase · 邮箱账号 · 整库 jsonb · 基线式三方同步） ============
      未登录：启动即弹出不可关闭的登录门；登录后整库 db 以 jsonb 存入表 sync_data
@@ -1968,6 +1985,7 @@
   let supaPushTimer = null;
   let pickPromise = null;          // 全局唯一冲突弹窗，防止多处同步逻辑重复弹窗
   let cloudPickHandled = false;    // 本次打开 App/网站已处理过：后续冲突静默解决不再弹
+  let cloudUpdateToastShown = false; // 「云端有更新」提醒：每次打开最多出现一次，避免自动同步反复提示
   let authMode = 'login';
 
   function supaReady() { return !!(window.supabase && SUPA_URL); }
@@ -2071,6 +2089,11 @@
   /* ---- 三方比对（本机 / 基线 / 云端）：
      'uploaded' 已上传 · 'downloaded' 已恢复云端 · 'same' 完全一致 ---- */
   async function reconcile() {
+    const r = await reconcileCore();
+    ensureGuide();   // 同步成功后：本平台说明文档若缺失（首次登录 / 被整库覆盖冲掉）就地补种
+    return r;
+  }
+  async function reconcileCore() {
     const local = JSON.stringify(db);
     const localObj = JSON.parse(local);   // 固定快照：上传内容与基线字符串保证完全一致
     // 更名迁移：老 WeTalk 本机数据首次登录后强制上传一次（覆盖云端），成功后清掉旧键、此后不再迁移
@@ -2124,6 +2147,13 @@
     supaPushTimer = setTimeout(() => { supaPush(true); }, 1500);
   }
 
+  /* 「云端有更新」提醒：每次打开最多一次（自动同步会反复触发，避免反复提示） */
+  function toastCloudUpdated() {
+    if (cloudUpdateToastShown) return;
+    cloudUpdateToastShown = true;
+    toast('云端有更新，已自动同步');
+  }
+
   async function supaPush(auto) {
     if (!supaUser) return;
     if (supaSyncing) { supaDirty = true; return; }
@@ -2132,7 +2162,7 @@
       const r = await reconcile();
       supaDirty = false;
       if (auto) {
-        if (r === 'downloaded') toast('云端有更新，已自动恢复');
+        if (r === 'downloaded') toastCloudUpdated();
       } else if (r === 'same') toast('已是最新');
       else if (r === 'uploaded') toast('已同步到云端');
       else toast('已恢复云端数据');
@@ -2589,7 +2619,7 @@
     if (!supaUser) { openAuthGate(); return; }
     try {
       const r = await reconcile();
-      if (r === 'downloaded') toast('云端有更新，已自动同步');
+      if (r === 'downloaded') toastCloudUpdated();
     } catch (e) {
       if (/JWT|expired/i.test(e.error || '')) {
         try { await supa.auth.signOut(); } catch (se) {}
@@ -2668,7 +2698,6 @@
 
   /* ============ 启动 ============ */
   load();
-  seedGuide();
   applyTheme();
   refreshSortBtn();
   renderLibrary();
