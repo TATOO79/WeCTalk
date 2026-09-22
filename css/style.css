@@ -1572,3 +1572,46 @@ html, body { overscroll-behavior: none; }
   font-size: 11.5px; color: var(--text-2);
   line-height: 1.7; text-align: center; margin: 14px 0 0;
 }
+/* 兑换码生成（仅管理员账号可见） */
+.vip-admin {
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px dashed var(--divider);
+}
+.vip-admin-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text-2); margin-bottom: 10px;
+}
+.vip-admin-title span {
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-solid);
+  font-size: 11px; font-weight: 600;
+}
+.vip-gen-row { display: flex; align-items: center; gap: 8px; }
+.vip-gen-row .name-input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 10px 8px; font-size: 13.5px; letter-spacing: 0;
+}
+.vip-gen-row #vip-gen-count { flex: 0 0 62px; }
+/* 下拉框交给系统渲染时夜间会变成黑底黑字，这里显式指定颜色并自绘箭头 */
+.vip-gen-row select.name-input {
+  appearance: none; -webkit-appearance: none;
+  text-align: left; padding: 10px 26px 10px 12px;
+  color: var(--text); background-color: var(--surface);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23848a94' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px 14px;
+}
+.vip-gen-row select option { color: var(--text); background: var(--surface); }
+.vip-gen-row .primary-btn {
+  flex: 0 0 auto; padding: 11px 18px; font-size: 14px;
+}
+.vip-gen-out {
+  width: 100%; height: 96px; margin-top: 10px;
+  padding: 10px 12px; resize: vertical;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.8;
+  letter-spacing: .5px; outline: none;
+}
+#vip-gen-actions { margin-top: 8px; }

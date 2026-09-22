@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>WeCTalk · 对话记录</title>
-<link rel="stylesheet" href="css/style.css?v=20260922">
+<link rel="stylesheet" href="css/style.css?v=20260922b">
 </head>
 <body>
 
@@ -422,9 +422,10 @@
 <div class="modal vip-modal hidden" id="modal-vip">
   <h3>WeCTalk 会员</h3>
   <div class="vip-features">
+    <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>免广告</div>
     <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>导出 Word 文档</div>
     <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>编辑按键自定义</div>
-    <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24"><path d="M20 6L9 17l-5-5"/></svg></span>人物信息库扩展至 10 条</div>
+    <div class="vip-feature"><span class="vf-ic"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></span>人物信息库扩展至 10 条</div>
   </div>
   <div class="vip-plans">
     <span class="vp-tag">一日体验</span>
@@ -433,9 +434,29 @@
     <span class="vp-tag">年度</span>
   </div>
   <div class="vip-current" id="vip-current"></div>
-  <input type="text" class="name-input vip-code-input" id="vip-code" placeholder="请输入激活码" spellcheck="false" autocomplete="off">
+  <input type="text" class="name-input vip-code-input" id="vip-code" placeholder="请输入兑换码" spellcheck="false" autocomplete="off">
   <button class="primary-btn vip-buy" id="vip-buy">激活会员</button>
-  <p class="vip-note">输入激活码立即开通，档位由激活码决定；有效期在当前会员基础上顺延，到期自动恢复免费版。</p>
+  <p class="vip-note">输入兑换码立即开通，档位由兑换码决定；有效期在当前会员基础上顺延，到期自动恢复免费版。</p>
+
+  <!-- 兑换码生成：仅管理员账号可见（权限由服务端函数校验） -->
+  <div class="vip-admin hidden" id="vip-admin">
+    <div class="vip-admin-title">生成兑换码<span>仅管理员</span></div>
+    <div class="vip-gen-row">
+      <select class="name-input" id="vip-gen-plan">
+        <option value="day">一日体验</option>
+        <option value="month">月度会员</option>
+        <option value="quarter">季度会员</option>
+        <option value="year">年度会员</option>
+      </select>
+      <input class="name-input" type="number" id="vip-gen-count" value="1" min="1" max="100" inputmode="numeric">
+      <button class="primary-btn" id="vip-gen-btn">生成</button>
+    </div>
+    <textarea class="vip-gen-out hidden" id="vip-gen-out" readonly spellcheck="false"></textarea>
+    <div class="modal-center hidden" id="vip-gen-actions">
+      <button class="ghost-btn" id="vip-gen-copy">复制全部</button>
+    </div>
+  </div>
+
   <div class="modal-center"><button class="ghost-btn" id="vip-cancel">稍后再说</button></div>
 </div>
 
@@ -444,6 +465,6 @@
 <script src="js/vendor/supabase-js.min.js"></script>
 <script src="js/export.js"></script>
 <script src="js/uniad-web.js"></script>
-<script src="js/app.js?v=20260922"></script>
+<script src="js/app.js?v=20260922b"></script>
 </body>
 </html>

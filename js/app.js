@@ -2489,9 +2489,9 @@
   });
 
   /* ============================================================
-     会员模块（激活码 / 四档时长 / 到期自动失效）
+     会员模块（兑换码 / 四档时长 / 到期自动失效）
      · 档位：day 一日体验 · month 月度 · quarter 季度 · year 年度
-     · 激活通过 RPC redeem_activation_code 完成（码表仅服务端可访问）
+     · 兑换通过 RPC redeem_activation_code 完成（码表仅服务端可访问）
      · 有效期在当前会员基础上顺延，expires_at 为唯一过期判定
      · 门控点：导出 Word / 按键自定义 / 人物信息库第 4~10 条
      ============================================================ */
@@ -2501,6 +2501,7 @@
   let isVip = false;
   let vipExpiresAt = null;
   let vipPlan = null;
+  let isAdminUser = false;   // 由服务端 is_admin() 判定，仅用于决定是否显示生成入口
 
   /* 网页 H5 广告位 adpid：在 uni-ad 后台创建「H5 应用」并开通信息流后填入；留空则不加载 */
   const WEB_AD_ADPID = '';
@@ -2530,10 +2531,17 @@
   async function loadMembership() {
     if (!supa || !supaUser) {
       isVip = false; vipExpiresAt = null; vipPlan = null;
+      isAdminUser = false;
       renderVipState();
       return;
     }
     try {
+      /* 管理员判定：函数不存在（未执行最新 SQL）时静默当作非管理员 */
+      try {
+        const adm = await supa.rpc('is_admin');
+        isAdminUser = !adm.error && adm.data === true;
+      } catch (e) { isAdminUser = false; }
+
       const { data, error } = await supa
         .from('memberships')
         .select('is_vip, plan, expires_at')
@@ -2568,6 +2576,10 @@
     $('#vip-current').textContent = isVip && vipExpiresAt
       ? `${VIP_PLANS[vipPlan] || '会员'} · ${remainText(vipExpiresAt)}`
       : '';
+    $('#vip-admin').classList.toggle('hidden', !isAdminUser);
+    $('#vip-gen-out').value = '';
+    $('#vip-gen-out').classList.add('hidden');
+    $('#vip-gen-actions').classList.add('hidden');
     openModal('#modal-vip');
     setTimeout(() => $('#vip-code').focus(), 60);
   }
@@ -2590,7 +2602,7 @@
     syncAdGate();
   }
 
-  /* 激活码兑换（返回 plan 名） */
+  /* 兑换码兑换（返回 plan 名） */
   async function redeemByCode(code) {
     if (!supaUser) throw { error: '请先登录后再激活' };
     const { data, error } = await supa.rpc('redeem_activation_code', {
@@ -2613,7 +2625,7 @@
   async function submitVipCode() {
     const btn = $('#vip-buy');
     const code = $('#vip-code').value.trim();
-    if (!code) return toast('请输入激活码');
+    if (!code) return toast('请输入兑换码');
     if (btn.disabled) return;
     btn.disabled = true;
     const oldText = btn.textContent;
@@ -2644,6 +2656,65 @@
   $('#up-vip').addEventListener('click', openVipModal);
   $('#up-vip-state').addEventListener('click', () => {
     if ($('#up-vip-state').classList.contains('clickable')) openVipModal();
+  });
+
+  /* ============ 兑换码生成（仅管理员；权限由服务端 admin_gen_codes 校验） ============ */
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text)
+        .catch(() => { if (!legacyCopy(text)) throw new Error('复制失败'); });
+    }
+    return legacyCopy(text) ? Promise.resolve() : Promise.reject(new Error('复制失败'));
+  }
+
+  async function genCodes() {
+    const btn = $('#vip-gen-btn');
+    if (btn.disabled || !supa) return;
+    const plan = $('#vip-gen-plan').value;
+    const count = Math.min(100, Math.max(1, parseInt($('#vip-gen-count').value, 10) || 1));
+    $('#vip-gen-count').value = count;
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = '生成中…';
+    try {
+      const { data, error } = await supa.rpc('admin_gen_codes', { p_plan: plan, p_count: count });
+      if (error) throw { error: error.message };
+      const codes = (data && data.codes) || [];
+      if (!codes.length) throw { error: '生成失败，请重试' };
+      $('#vip-gen-out').value = codes.join('\n');
+      $('#vip-gen-out').classList.remove('hidden');
+      $('#vip-gen-actions').classList.remove('hidden');
+      toast(`已生成 ${codes.length} 个${VIP_PLANS[plan] || ''}兑换码`);
+    } catch (e) {
+      const m = e.error || '';
+      if (/could not find the function|schema cache/i.test(m))
+        toast('生成功能未就绪：请先执行最新版 supabase_membership.sql');
+      else toast(m || '生成失败，请重试');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
+  }
+  $('#vip-gen-btn').addEventListener('click', genCodes);
+  $('#vip-gen-count').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); genCodes(); }
+  });
+  $('#vip-gen-copy').addEventListener('click', () => {
+    const v = $('#vip-gen-out').value;
+    if (!v) return;
+    copyText(v).then(() => toast('已复制全部兑换码')).catch(() => toast('复制失败，请长按选择文本'));
   });
 
   /* ============ 启动：恢复会话，自动同步；无会话弹登录门 ============ */
