@@ -10,3 +10,6 @@ supabase_membership.sql
 *.local
 .env
 .env.*
+
+# 开发记录（仅本地留档，含内部实现细节，不公开）
+开发记录.md
