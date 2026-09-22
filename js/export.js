@@ -1,4 +1,4 @@
-/* ============ WeTalk · 导出模块（word(.docx) / pdf / 长图jpg） ============ */
+/* ============ WeCTalk · 导出模块（word(.docx) / pdf / 长图jpg） ============ */
 const WTExport = (() => {
 
   /* ---------- HTML 规整 ---------- */

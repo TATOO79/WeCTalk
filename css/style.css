@@ -1,5 +1,5 @@
 /* ============================================================
-   WeTalk · 视觉系统 v2
+   WeCTalk · 视觉系统 v2
    日间：纸白 × 墨黑 | 夜间：曜黑 × 鎏金
    ============================================================ */
 :root {
@@ -866,7 +866,7 @@ html, body { overscroll-behavior: none; }
 @media (max-width: 640px) {
   .lib-body { position: relative; }
 
-  /* 顶部栏：WeTalk + 云按钮一组靠左；搜索框改为填充中部剩余空间，绝不与两侧重叠 */
+  /* 顶部栏：WeCTalk + 云按钮一组靠左；搜索框改为填充中部剩余空间，绝不与两侧重叠 */
   .lib-header { padding: 0 10px; gap: 10px; }
   .lib-title { padding-left: 4px; gap: 6px; }
   .lib-title h1 { font-size: 16px; letter-spacing: .6px; }
@@ -973,7 +973,7 @@ html, body { overscroll-behavior: none; }
 .primary-btn:disabled { opacity: .55; cursor: default; filter: none; }
 
 /* ============================================================
-   左侧账号栏（点 WeTalk 标题展开）
+   左侧账号栏（点 WeCTalk 标题展开）
    ============================================================ */
 #lib-logo { cursor: pointer; user-select: none; transition: opacity .15s; }
 #lib-logo:hover { opacity: .75; }
@@ -1033,6 +1033,18 @@ html, body { overscroll-behavior: none; }
 .up-cross:hover { filter: brightness(1.1); }
 .up-cross:active { transform: scale(.97); }
 .up-cross svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; }
+
+/* 网页个人主页底部广告位（默认隐藏，加载成功后展示；App 内不出现） */
+.uniad-slot {
+  display: none;
+  margin-top: 12px;
+  width: 100%;
+  min-height: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+}
+.uniad-slot > div { width: 100%; }
 /* 账号栏遮罩 */
 .user-mask {
   position: absolute; inset: 0; z-index: 65;

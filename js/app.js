@@ -1,11 +1,11 @@
-/* ============ WeTalk · 主逻辑（文档库 + 编辑器） ============ */
+/* ============ WeCTalk · 主逻辑（文档库 + 编辑器） ============ */
 (() => {
   'use strict';
   const $ = s => document.querySelector(s);
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
   /* 是否运行在安卓 App（WebView 注入 UA 标记）内 */
-  const IS_APP = /WeTalkApp/.test(navigator.userAgent);
+  const IS_APP = /WeCTalkApp/.test(navigator.userAgent);
   document.documentElement.classList.toggle('is-app', IS_APP);
   // 供原生层查询当前是否处于编辑页（系统返回键拦截用）
   window.__wtInEditor = () => !$('#view-editor').classList.contains('hidden');
@@ -129,7 +129,7 @@
   function childrenOf(folderId) {
     return {
       folders: db.folders.filter(f => f.parentId === folderId),
-      docs: db.docs.filter(d => d.folderId === folderId)
+      docs: db.docs.filter(d => d.folderId === folderId && !isHiddenGuide(d))
     };
   }
   function folderPath(folderId) {
@@ -186,7 +186,7 @@
     if (searching) {
       const q = searchQuery.trim().toLowerCase();
       folders = db.folders.filter(f => f.name.toLowerCase().includes(q));
-      docs = db.docs.filter(d => resolveTitle(d).toLowerCase().includes(q));
+      docs = db.docs.filter(d => !isHiddenGuide(d) && resolveTitle(d).toLowerCase().includes(q));
     } else {
       ({ folders, docs } = childrenOf(currentFolder));
     }
@@ -204,7 +204,8 @@
     docs.forEach(d => list.appendChild(buildRow({ type: 'doc', id: d.id, name: resolveTitle(d), createdAt: d.createdAt })));
 
     // 底部汇总
-    const totalFolders = db.folders.length, totalDocs = db.docs.length;
+    const totalFolders = db.folders.length;
+    const totalDocs = db.docs.filter(d => !isHiddenGuide(d)).length;
     $('#lib-footer').innerHTML = `共 <b>${totalDocs}</b> 篇文稿 &nbsp;·&nbsp; <b>${totalFolders}</b> 个文件夹`;
 
     renderNavTree();
@@ -496,7 +497,7 @@
         if (open) addNodes(f.id, depth + 1);
       });
       // 再文稿
-      db.docs.filter(d => d.folderId === parentId).forEach(d => {
+      db.docs.filter(d => d.folderId === parentId && !isHiddenGuide(d)).forEach(d => {
         const el = document.createElement('div');
         el.className = 'nav-item is-doc';
         el.style.paddingLeft = (10 + depth * 17) + 'px';
@@ -1808,20 +1809,28 @@
   $('#btn-theme-ed').onclick = toggleTheme;
 
   /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v7' : 'wetalk_guide_seeded_v7';
+  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v9' : 'wetalk_guide_seeded_v9';
   const GUIDE_TITLES = [
+    // 新品牌（当前）
+    '欢迎使用WeCTalk·网页使用说明',
+    '欢迎使用WeCTalk·App使用说明',
+    // 历史标题：保留在数据中但全部在界面隐藏，绝不再删除（云同步会互相覆盖）
     '欢迎使用 WeTalk · 使用说明',
     '欢迎使用WeTalk·网页使用说明',
     '欢迎使用WeTalk·App使用说明'
   ];
+  const LEGACY_GUIDE_TITLES = ['欢迎使用 WeTalk · 使用说明'];
   const guideTitle = IS_APP
-    ? '欢迎使用WeTalk·App使用说明'
-    : '欢迎使用WeTalk·网页使用说明';
+    ? '欢迎使用WeCTalk·App使用说明'
+    : '欢迎使用WeCTalk·网页使用说明';
+  /* 另一端平台的说明文档：保留在库中（避免删除动作经云同步互相覆盖），仅在本机界面隐藏 */
+  function isHiddenGuide(d) {
+    return GUIDE_TITLES.includes(d.title) && d.title !== guideTitle;
+  }
   function seedGuide() {
-    // 旧版标题 / 另一端标题的说明：每次启动都移除
-    const staleTitles = GUIDE_TITLES.filter(t => t !== guideTitle);
+    // 仅清理远古版旧标题；网页/App 两端说明都保留，互不删除
     const n0 = db.docs.length;
-    db.docs = db.docs.filter(d => !staleTitles.includes(d.title));
+    db.docs = db.docs.filter(d => !LEGACY_GUIDE_TITLES.includes(d.title));
     if (db.docs.length !== n0) save();
     if (localStorage.getItem(GUIDE_KEY)) return;
     // 新版本种子：同标题的旧内容也一并替换
@@ -1834,7 +1843,7 @@
       + 'style="max-width:100%;height:auto;border-radius:10px;display:block">'
       + '<div style="font-size:12px;opacity:.72;margin-top:6px">' + caption + '</div>';
     const wtWelcome =
-      '<b>欢迎使用 WeTalk</b><br>这是一个专注「快速记录对话」的小工具：没有复杂的排版功能，打开就能记，记完即可导出。这份说明会带你快速上手，读完后可以随时删除它。';
+      '<b>欢迎使用 WeCTalk</b><br>这是一个专注「快速记录对话」的小工具：没有复杂的排版功能，打开就能记，记完即可导出。这份说明会带你快速上手，读完后可以随时删除它。';
     const wtScenes =
       '适用于这些场景：<b>会议纪要、访谈记录、电话沟通备忘、线上聊天整理</b>等。凡是两个人之间的对话，都可以用左右两栏快速记录下来，并导出为规整的文档。';
 
@@ -1860,7 +1869,7 @@
       guideShot('w-06.jpg', '图 6：导出文档窗口'),
       '<b>十一、账号与云端同步</b><br>使用邮箱注册并登录后，所有文稿与设置会自动同步到云端，同一账号在网页或 App 登录即可获得全部记录。同步采用三方比对，仅在双方修改确实冲突时才弹窗让你选择，其余情况自动完成。',
       guideShot('w-07.jpg', '图 7：首次打开时的登录窗口'),
-      guideShot('w-08.jpg', '图 8：点击左上角 WeTalk 可查看账号与同步状态'),
+      guideShot('w-08.jpg', '图 8：点击左上角 WeCTalk 可查看账号与同步状态'),
       '<b>十二、日间 / 夜间主题</b><br>点击右上角月亮图标切换日间与夜间主题，选择会被自动记住。',
       guideShot('w-09.jpg', '图 9：夜间主题下的编辑界面'),
       '准备好了，就点击右下角「＋」开始第一段对话吧。之后忘记任何操作，都可以回到本文档查看。'
@@ -2379,6 +2388,31 @@
   let vipExpiresAt = null;
   let vipPlan = null;
 
+  /* 网页 H5 广告位 adpid：在 uni-ad 后台创建「H5 应用」并开通信息流后填入；留空则不加载 */
+  const WEB_AD_ADPID = '';
+
+  /* 广告门控：App 端把会员状态上报原生缓存（下次冷启动判定是否拉开屏）；
+     网页端会员变为有效/失效时挂卸个人主页广告 */
+  function syncAdGate() {
+    const expiresMs = isVip && vipExpiresAt ? vipExpiresAt.getTime() : 0;
+    if (IS_APP) {
+      try { window.WTNative && WTNative.setVipState && WTNative.setVipState(!!isVip, expiresMs); } catch (e) {}
+      return;
+    }
+    const slot = $('#uniad-profile');
+    if (slot && window.UniAdWeb && (isVip || !WEB_AD_ADPID)) {
+      UniAdWeb.unmount(slot);
+      slot.style.display = 'none';
+    }
+  }
+
+  /* 网页端打开个人主页时，非会员才挂载底部广告（App 内不加载网页广告） */
+  function maybeMountWebAd() {
+    if (IS_APP || isVip || !WEB_AD_ADPID) return;
+    const slot = $('#uniad-profile');
+    if (slot && window.UniAdWeb) UniAdWeb.mount(slot, WEB_AD_ADPID);
+  }
+
   async function loadMembership() {
     if (!supa || !supaUser) {
       isVip = false; vipExpiresAt = null; vipPlan = null;
@@ -2439,6 +2473,7 @@
       el.textContent = '目前您未开通会员，点击开通';
       el.classList.add('clickable', 'free');
     }
+    syncAdGate();
   }
 
   /* 激活码兑换（返回 plan 名） */
@@ -2542,6 +2577,7 @@
     renderUserPanel();
     $('#user-panel').classList.add('open');
     $('#user-mask').classList.add('show');
+    maybeMountWebAd();
   }
   function closeUserPanel() {
     $('#user-panel').classList.remove('open');
