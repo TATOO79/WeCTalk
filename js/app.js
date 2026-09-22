@@ -15,8 +15,35 @@
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   };
 
+  /* ============ 更名迁移（WeTalk → WeCTalk） ============
+     1) 存储键前缀 wetalk_* → wectalk_*：一次性搬运旧键数据，旧键原样保留；
+     2) 老版本遗留的本机数据：首次登录后强制上传云端一次（覆盖云端），此后只在 WeCTalk 上跑。 */
+  const LEGACY_PUSHED_KEY = 'wectalk_legacy_pushed_v1';
+  let legacyPushPending = false;
+  (function migrateLegacyKeys() {
+    const LEGACY_KEY_MAP = {
+      'wetalk_db_v1': 'wectalk_db_v1',
+      'wetalk_sort_desc_v1': 'wectalk_sort_desc_v1',
+      'wetalk_chat_zoom_v1': 'wectalk_chat_zoom_v1',
+      'wetalk_guide_seeded_app_v9': 'wectalk_guide_seeded_app_v9',
+      'wetalk_guide_seeded_v9': 'wectalk_guide_seeded_v9',
+      'wetalk_baseline_v1': 'wectalk_baseline_v1'
+    };
+    try {
+      Object.keys(LEGACY_KEY_MAP).forEach(oldKey => {
+        const val = localStorage.getItem(oldKey);
+        if (val !== null && localStorage.getItem(LEGACY_KEY_MAP[oldKey]) === null) {
+          localStorage.setItem(LEGACY_KEY_MAP[oldKey], val);
+        }
+      });
+      // 老版确有本机数据、且尚未迁移过 → 标记为登录后强制上传一次
+      if (localStorage.getItem('wetalk_db_v1') !== null &&
+          localStorage.getItem(LEGACY_PUSHED_KEY) === null) legacyPushPending = true;
+    } catch (e) {}
+  })();
+
   /* ============ 数据层 ============ */
-  const DB_KEY = 'wetalk_db_v1';
+  const DB_KEY = 'wectalk_db_v1';
   let db;
   function load() {
     try { db = JSON.parse(localStorage.getItem(DB_KEY)); } catch (e) { db = null; }
@@ -96,7 +123,7 @@
   let currentFolder = null; // null = 根目录
   let searchQuery = '';     // 文件名搜索关键字
   /* 列表排序：按创建时间升降序，默认降序（新→旧），全局记忆；各级页面与搜索结果共用 */
-  const SORT_KEY = 'wetalk_sort_desc_v1';
+  const SORT_KEY = 'wectalk_sort_desc_v1';
   let sortDesc = true;
   try { sortDesc = localStorage.getItem(SORT_KEY) !== '0'; } catch (e) {}
   const sortByTime = arr => {
@@ -1082,7 +1109,7 @@
   /* App 内：输入引导、统一返回体系、左右滑切栏、双指缩放气泡字号 */
   /* 双指缩放因子：仅作用于对话区气泡字号，不影响上下栏 / 左栏 / 导出；
      全局记忆、跨文档迁移；有上下限，到达极限后手势无效且不弹窗 */
-  const ZOOM_KEY = 'wetalk_chat_zoom_v1';
+  const ZOOM_KEY = 'wectalk_chat_zoom_v1';
   const ZOOM_MIN = 0.85, ZOOM_MAX = 1.6;
   let chatZoom = 1;
   try {
@@ -1809,7 +1836,7 @@
   $('#btn-theme-ed').onclick = toggleTheme;
 
   /* ============ 首次使用：种子说明文档 ============ */
-  const GUIDE_KEY = IS_APP ? 'wetalk_guide_seeded_app_v9' : 'wetalk_guide_seeded_v9';
+  const GUIDE_KEY = IS_APP ? 'wectalk_guide_seeded_app_v9' : 'wectalk_guide_seeded_v9';
   const GUIDE_TITLES = [
     // 新品牌（当前）
     '欢迎使用WeCTalk·网页使用说明',
@@ -1932,7 +1959,7 @@
   const SUPA_URL = 'https://fdmahwltwoypecyjpmfb.supabase.co';
   const SUPA_ANON = 'sb_publishable_dAFSkJ5BungbrDlG7BqxrA_YqZtPIDq';
   const SUPA_TABLE = 'sync_data';
-  const BASELINE_KEY = 'wetalk_baseline_v1';
+  const BASELINE_KEY = 'wectalk_baseline_v1';
 
   let supa = null;
   let supaUser = null;
@@ -2046,6 +2073,23 @@
   async function reconcile() {
     const local = JSON.stringify(db);
     const localObj = JSON.parse(local);   // 固定快照：上传内容与基线字符串保证完全一致
+    // 更名迁移：老 WeTalk 本机数据首次登录后强制上传一次（覆盖云端），成功后清掉旧键、此后不再迁移
+    if (legacyPushPending) {
+      if (db.docs.length === 0 && db.folders.length === 0) {
+        legacyPushPending = false;
+        try { localStorage.setItem(LEGACY_PUSHED_KEY, '1'); } catch (e) {}
+      } else {
+        await supaPutRow(localObj); setBaseline(local);
+        legacyPushPending = false;
+        try {
+          localStorage.setItem(LEGACY_PUSHED_KEY, '1');
+          ['wetalk_db_v1', 'wetalk_sort_desc_v1', 'wetalk_chat_zoom_v1',
+           'wetalk_guide_seeded_app_v9', 'wetalk_guide_seeded_v9', 'wetalk_baseline_v1']
+            .forEach(k => localStorage.removeItem(k));
+        } catch (e) {}
+        return 'uploaded';
+      }
+    }
     const base = getBaseline();
     let baseObj = null;
     if (base) { try { baseObj = JSON.parse(base); } catch (e) { baseObj = null; } }
@@ -2604,7 +2648,7 @@
   $('#getapp-cancel').addEventListener('click', closeModals);
 
   /* 底部跨端入口：App → 外部浏览器打开网页版；网页 → 下载 App 弹窗 */
-  const WEB_URL = 'https://tatoo79.github.io/WeTalk/';
+  const WEB_URL = 'https://tatoo79.github.io/WeCTalk/';
   if (IS_APP) {
     $('#up-cross').innerHTML =
       '<svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>访问网页版';
