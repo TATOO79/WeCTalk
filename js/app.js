@@ -2580,6 +2580,7 @@
     $('#vip-gen-out').value = '';
     $('#vip-gen-out').classList.add('hidden');
     $('#vip-gen-actions').classList.add('hidden');
+    if (isAdminUser) loadStock(); else renderStock(null);   // 打开时刷新四档库存
     openModal('#modal-vip');
     setTimeout(() => $('#vip-code').focus(), 60);
   }
@@ -2679,6 +2680,27 @@
     return legacyCopy(text) ? Promise.resolve() : Promise.reject(new Error('复制失败'));
   }
 
+  /* 四档库存：未使用 / 已使用 / 总数（函数未创建时静默不显示） */
+  function renderStock(rows) {
+    const box = $('#vip-stock');
+    if (!box) return;
+    if (!rows || !rows.length) { box.innerHTML = ''; return; }
+    const head = '<div class="vs-row vs-head"><span>可用兑换码</span>'
+      + '<span>未用</span><span>已用</span><span>总数</span></div>';
+    const body = rows.map(r =>
+      `<div class="vs-row"><span>${VIP_PLANS[r.plan] || r.plan}</span>`
+      + `<span>${r.unused}</span><span>${r.used}</span><span>${r.total}</span></div>`
+    ).join('');
+    box.innerHTML = head + body;
+  }
+  async function loadStock() {
+    if (!isAdminUser || !supa) { renderStock(null); return; }
+    try {
+      const { data, error } = await supa.rpc('admin_code_stats');
+      renderStock(error ? null : data);
+    } catch (e) { renderStock(null); }
+  }
+
   async function genCodes() {
     const btn = $('#vip-gen-btn');
     if (btn.disabled || !supa) return;
@@ -2697,6 +2719,7 @@
       $('#vip-gen-out').classList.remove('hidden');
       $('#vip-gen-actions').classList.remove('hidden');
       toast(`已生成 ${codes.length} 个${VIP_PLANS[plan] || ''}兑换码`);
+      loadStock();   // 生成后刷新库存
     } catch (e) {
       const m = e.error || '';
       if (/could not find the function|schema cache/i.test(m))
