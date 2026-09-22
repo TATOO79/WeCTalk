@@ -1146,7 +1146,7 @@
   }
 
   if (IS_APP) {
-    syncKeyHints();
+    /* 输入引导不在此处初始化：syncKeyHints() 依赖 db.keymap，而 db 要到启动末尾 load() 才有值 */
     applyChatZoom(chatZoom);
 
     /* 统一返回（系统返回键 / 屏幕边缘左滑手势都会走到这里）：
