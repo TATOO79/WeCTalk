@@ -1508,7 +1508,8 @@ html, body { overscroll-behavior: none; }
   gap: 14px; margin-bottom: 10px;
 }
 .side-head h3 { margin: 0; }
-.side-import { margin-left: 14px; }   /* 与「左栏人物/右栏人物」保持距离 */
+/* 「导入」是次要操作：比面板内其它 mini-btn 小一号，避免抢标题的视觉重心 */
+.side-import { margin-left: 14px; padding: 4px 11px; font-size: 12px; border-radius: 7px; }
 
 /* 设置弹窗内 导入/图库/纯色/确定：与「保存」同为 accent 实底配色 */
 .settings-modal .mini-btn {

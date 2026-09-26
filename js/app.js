@@ -905,8 +905,10 @@
       runKeyAction(r.fire);
     }
   });
-  // 失焦时作废序列前缀，并把草稿存为一条（不重绘，防止破坏选区）
-  inputBox.addEventListener('blur', () => { clearKeyPending(); commitInput(false); });
+  /* 失焦只作废序列前缀：草稿必须原样留在输入框里。
+     只有发送键（默认 Enter / →+Enter / ←+Enter 等）或 App 左右圆圈才真正发出，
+     否则点设置、改名、导出等任何按钮都会先把框内内容误发成一条对话。 */
+  inputBox.addEventListener('blur', () => { clearKeyPending(); });
 
   /* 左右圆圈：
      · App：点哪个圈就把当前输入发送到哪侧（什么都没输入不发送，输入空格可发送空格），
@@ -970,9 +972,7 @@
   /* ============ 补全模式：点两气泡间缝隙插入漏掉的对话 ============ */
   function enterInsertMode(gapIndex) {
     if (!editing.lines.length) return;
-    // 进入前先把输入框里的半成品按普通方式发出
-    commitInput(false);
-    if (!editing.lines.length) return;
+    // 进入补全不算「发送」：输入框里的草稿原样保留，等用户按发送键再发出
     insertMode = { slotRow: gapIndex + 1, added: 0, startG: gapIndex };
     // 槽位下方的既有行整体下移一行，腾出槽位行
     editing.lines.forEach(l => { if (l.row > gapIndex) l.row += 1; });
@@ -1319,7 +1319,9 @@
     showView('library');
   }
 
-  /* 左上角箭头：兜底提交输入框内容并落库，然后返回文档库 */
+  /* 左上角箭头 =「保存并退出」（App 返回手势也提示这句）：唯一一处非发送键也提交草稿的地方。
+     离开编辑页后 openEditor() 会清空输入框，不提交等于静默丢掉用户已输入的内容；
+     其余按钮（设置 / 改名 / 导出 / 补全 / 主题…）一律不提交，草稿留在框内。 */
   $('#btn-exit').onclick = () => {
     if (insertMode) finishInsertMode();
     commitInput();
@@ -1800,7 +1802,7 @@
       const fmt = b.dataset.fmt;
       // Word 为会员功能，进入前先门控
       if (fmt === 'word' && !requireVip()) return;
-      commitInput();
+      // 导出不发送草稿：只导出已发出的对话，输入框里的内容原样保留
       const doc = JSON.parse(JSON.stringify(editing));
       doc.title = resolveTitle(doc);
       // 长图与原 TXT 同口径：允许空内容导出（仅标题+双方信息）

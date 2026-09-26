@@ -3,6 +3,9 @@ app/
 .vscode/
 .avd-tmp/
 
+# Gradle 本地缓存（构建时 GRADLE_USER_HOME 指向仓库内，避免沙箱拒绝写入 %TEMP%）
+.gradle-home/
+
 # 内部材料 / 已暂停平台 / 服务端脚本，禁止推送到公开仓库
 软著登记材料/
 ios/
